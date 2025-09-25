@@ -1,21 +1,25 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Calendar, ArrowLeft } from 'lucide-react';
+import { Calendar, ArrowLeft, LogOut } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { signOut } from 'next-auth/react';
+
 interface HeaderProps {
   title: string;
   showBackButton?: boolean;
   onBack?: () => void;
   showTodayBookings?: boolean;
   onTodayBookings?: () => void;
+  showLogout?: boolean;
 }
 export function Header({
   title,
   showBackButton,
   onBack,
   showTodayBookings,
-  onTodayBookings
+  onTodayBookings,
+  showLogout = true
 }: HeaderProps) {
   const currentUser = useAppStore(state => state.currentUser);
   return <motion.header initial={{
@@ -54,6 +58,15 @@ export function Header({
             <span className="sm:hidden editable-text" data-unique-id="bd8db14a-82e1-4eca-b9fd-c3b285c2067b" data-file-name="components/header.tsx">
             Today
           </span>
+          </motion.button>}
+
+        {showLogout && <motion.button whileHover={{
+        scale: 1.05
+      }} whileTap={{
+        scale: 0.95
+      }} onClick={() => signOut({ callbackUrl: '/auth/signin' })} className="bg-red-100 text-red-700 px-3 sm:px-4 py-2 sm:py-3 rounded-xl font-medium flex items-center gap-1 sm:gap-2 hover:bg-red-200 transition-colors text-sm sm:text-base flex-shrink-0">
+            <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="hidden sm:inline">Logout</span>
           </motion.button>}
       </div>
     </motion.header>;

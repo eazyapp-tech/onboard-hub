@@ -3,6 +3,7 @@ import React from "react";
 import { type Metadata } from "next";
 import { DevtoolsProvider } from 'creatr-devtools';
 import { ThemeProvider } from 'next-themes';
+import { SessionProvider } from 'next-auth/react';
 export const viewport = {
   width: "device-width",
   initialScale: 1,
@@ -58,11 +59,13 @@ export default function RootLayout({
 }>) {
   return <html suppressHydrationWarning lang="en" data-unique-id="ad8ff0b4-68ea-4328-9560-d299833c2ca7" data-file-name="app/layout.tsx">
       <body className="bg-background text-foreground antialiased" data-unique-id="b157c3ee-3f35-4a3b-a2da-e81ab7dcc4f8" data-file-name="app/layout.tsx">
-        <ThemeProvider attribute='class'>
-          <DevtoolsProvider hideBranding={true}>
-            {children}
-          </DevtoolsProvider>
-        </ThemeProvider>
+        <SessionProvider>
+          <ThemeProvider attribute='class'>
+            <DevtoolsProvider hideBranding={true}>
+              {children}
+            </DevtoolsProvider>
+          </ThemeProvider>
+        </SessionProvider>
       </body>
     </html>;
 }

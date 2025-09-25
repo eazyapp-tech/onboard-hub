@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { format } from 'date-fns';
+import { useSession, signOut } from 'next-auth/react';
 import { useAppStore } from '@/lib/store';
 import { RoleSelector } from '@/components/role-selector';
 import { Header } from '@/components/header';
@@ -71,6 +72,7 @@ type AppState =
   | 'cis-user-select'
   | 'cis-dashboard';
 export default function HomePage() {
+  const { data: session, status } = useSession();
   const [appState, setAppState] = useState<AppState>('role-selection');
   const [showTodayBookings, setShowTodayBookings] = useState(false);
   const {
@@ -172,6 +174,44 @@ export default function HomePage() {
     };
     initializeData();
   }, []);
+
+  // Handle authentication
+  useEffect(() => {
+    if (status === 'loading') return; // Still loading
+    
+    if (!session) {
+      // User not authenticated, redirect to sign-in
+      window.location.href = '/auth/signin';
+      return;
+    }
+    
+    // User is authenticated, set current user from session
+    if (session.user) {
+      setCurrentUser({
+        id: session.user.email?.split('@')[0] || 'unknown',
+        name: session.user.name || 'Unknown User',
+        email: session.user.email || '',
+        role: 'sales' // Default role, can be determined by email domain
+      });
+    }
+  }, [session, status, setCurrentUser]);
+
+  // Show loading while checking authentication
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show nothing if not authenticated (will redirect)
+  if (!session) {
+    return null;
+  }
   const handleRoleSelect = (role: 'sales' | 'cis') => {
     if (role === 'sales') {
       setAppState('sales-user-select'); // pick who is creating
