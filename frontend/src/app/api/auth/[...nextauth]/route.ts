@@ -8,6 +8,7 @@ const handler = NextAuth({
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     })
   ],
+  debug: true, // Enable debug mode
   callbacks: {
     async signIn({ user, account, profile }) {
       // Check if user's email domain is allowed

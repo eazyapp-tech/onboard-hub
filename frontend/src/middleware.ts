@@ -2,21 +2,19 @@ import { withAuth } from 'next-auth/middleware'
 
 export default withAuth(
   function middleware(req) {
-    // Additional middleware logic can go here
+    console.log('Middleware running for:', req.nextUrl.pathname)
   },
   {
     callbacks: {
-      authorized: ({ token }) => {
-        // Check if user has valid token and authorized domain
-        if (!token) return false
+      authorized: ({ token, req }) => {
+        console.log('Authorization check:', { 
+          path: req.nextUrl.pathname, 
+          hasToken: !!token,
+          tokenEmail: token?.email 
+        })
         
-        const email = token.email as string
-        if (!email) return false
-        
-        const allowedDomains = ['eazyapp.tech', 'rentok.com']
-        const userDomain = email.split('@')[1]
-        
-        return allowedDomains.includes(userDomain)
+        // For now, just check if token exists
+        return !!token
       },
     },
   }
