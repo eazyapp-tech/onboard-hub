@@ -1,0 +1,9 @@
+# secrets
+.env
+*.env
+*.key
+*.pem
+*.p12
+# node
+node_modules
+npm-debug.log*
