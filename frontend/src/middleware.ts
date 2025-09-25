@@ -13,7 +13,16 @@ export default withAuth(
           tokenEmail: token?.email 
         })
         
-        // For now, just check if token exists
+        // For local development, allow access if no Google OAuth configured
+        const isLocalDev = process.env.NODE_ENV === 'development' && 
+                          (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id-here');
+        
+        if (isLocalDev) {
+          console.log('Local development mode - allowing access');
+          return true;
+        }
+        
+        // For production, check if token exists
         return !!token
       },
     },

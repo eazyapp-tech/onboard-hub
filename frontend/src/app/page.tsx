@@ -186,6 +186,22 @@ export default function HomePage() {
       GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET'
     });
     
+    // For local development, skip authentication if env vars are not set
+    const isLocalDev = process.env.NODE_ENV === 'development' && 
+                      (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id-here');
+    
+    if (isLocalDev) {
+      console.log('Local development mode - skipping authentication');
+      setCurrentUser({
+        id: 'local-dev',
+        name: 'Local Developer',
+        email: 'dev@eazyapp.tech',
+        role: 'sales',
+        active: true
+      });
+      return;
+    }
+    
     if (status === 'loading') return; // Still loading
     
     if (!session) {
