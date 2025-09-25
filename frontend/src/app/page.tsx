@@ -177,16 +177,27 @@ export default function HomePage() {
 
   // Handle authentication
   useEffect(() => {
+    console.log('Auth status:', status);
+    console.log('Session:', session);
+    console.log('Environment check:', {
+      NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+      NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET ? 'SET' : 'NOT SET',
+      GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ? 'SET' : 'NOT SET',
+      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT SET'
+    });
+    
     if (status === 'loading') return; // Still loading
     
     if (!session) {
       // User not authenticated, redirect to sign-in
+      console.log('No session, redirecting to sign-in');
       window.location.href = '/auth/signin';
       return;
     }
     
     // User is authenticated, set current user from session
     if (session.user) {
+      console.log('User authenticated:', session.user);
       setCurrentUser({
         id: session.user.email?.split('@')[0] || 'unknown',
         name: session.user.name || 'Unknown User',
