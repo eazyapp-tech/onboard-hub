@@ -202,7 +202,8 @@ export default function HomePage() {
         id: session.user.email?.split('@')[0] || 'unknown',
         name: session.user.name || 'Unknown User',
         email: session.user.email || '',
-        role: 'sales' // Default role, can be determined by email domain
+        role: 'sales', // Default role, can be determined by email domain
+        active: true
       });
     }
   }, [session, status, setCurrentUser]);
