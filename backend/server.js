@@ -31,7 +31,32 @@ const upload = multer({ dest: uploadsDir });
 
 // 4) Middlewares
 app.use(helmet());
-app.use(cors({ origin: true, credentials: true }));
+
+// CORS configuration for production
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://start.rentok.com',
+  'https://frontend-frdf20knw-nimitjns-projects.vercel.app',
+  'https://onboard-hun-backend-1.onrender.com'
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(
@@ -853,12 +878,21 @@ app.use((err, _req, res, _next) => {
 // ---- FREEBUSY: return available slots for a CIS email + date + mode ----
 app.get('/api/freebusy', async (req, res, next) => {
   try {
+    console.log('[FREEBUSY] Request received:', { query: req.query, origin: req.get('Origin') });
+    
     const email = String(req.query.email || '').trim();
     const dateStr = String(req.query.date || '').trim(); // yyyy-mm-dd
     const mode = String(req.query.mode || 'physical').trim(); // 'physical' | 'virtual'
 
     if (!email || !dateStr) {
+      console.log('[FREEBUSY] Missing required params:', { email, dateStr });
       return res.status(400).json({ ok: false, error: 'Missing email or date' });
+    }
+
+    // Validate environment variables
+    if (!GOOGLE_KEYFILE) {
+      console.error('[FREEBUSY] Missing GOOGLE_KEYFILE');
+      return res.status(500).json({ ok: false, error: 'Google credentials not configured' });
     }
 
     // Build the slot templates (local time)
@@ -888,66 +922,87 @@ app.get('/api/freebusy', async (req, res, next) => {
       ];
     }
 
+    console.log('[FREEBUSY] Candidate slots:', candidateSlots.length);
+
     // Auth with service account without impersonation
     let authConfig;
     
-    // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
-    if (GOOGLE_KEYFILE.startsWith('{')) {
-      // It's a JSON string (Render environment) - write to temp file
-      const credentials = JSON.parse(GOOGLE_KEYFILE);
-      const tempKeyFile = '/tmp/google-credentials-freebusy.json';
-      fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
-      authConfig = {
-        keyFile: tempKeyFile,
-        scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-      };
-    } else {
-      // It's a file path (local environment)
-      authConfig = {
-        keyFile: GOOGLE_KEYFILE,
-        scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-      };
+    try {
+      // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
+      if (GOOGLE_KEYFILE.startsWith('{')) {
+        // It's a JSON string (Render environment) - write to temp file
+        const credentials = JSON.parse(GOOGLE_KEYFILE);
+        const tempKeyFile = '/tmp/google-credentials-freebusy.json';
+        fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+        authConfig = {
+          keyFile: tempKeyFile,
+          scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
+        };
+      } else {
+        // It's a file path (local environment)
+        authConfig = {
+          keyFile: GOOGLE_KEYFILE,
+          scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
+        };
+      }
+      
+      console.log('[FREEBUSY] Auth config created');
+      
+      const auth = new google.auth.GoogleAuth(authConfig);
+      const client = await auth.getClient();
+      const calendar = google.calendar({ version: 'v3', auth: client });
+
+      console.log('[FREEBUSY] Google Calendar client initialized');
+
+      // Ask Google for busy periods on that date
+      const timeMin = new Date(dateStr + 'T00:00:00');
+      const timeMax = new Date(dateStr + 'T23:59:59');
+
+      console.log('[FREEBUSY] Querying freebusy for:', { email, timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() });
+
+      const fb = await calendar.freebusy.query({
+        requestBody: {
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
+          items: [{ id: email }],
+        },
+      });
+
+      console.log('[FREEBUSY] Freebusy response received');
+
+      const busy = (fb.data.calendars?.[email]?.busy || []).map(b => ({
+        start: new Date(b.start),
+        end: new Date(b.end),
+      }));
+
+      console.log('[FREEBUSY] Busy periods:', busy.length);
+
+      // helper: check overlap
+      const overlaps = (a, b) => a.start < b.end && b.start < a.end;
+
+      // Filter candidates that do NOT overlap with any busy interval
+      const available = candidateSlots.filter(slot => {
+        return !busy.some(b => overlaps(slot, b));
+      });
+
+      // Shape response
+      const result = available.map((s, idx) => ({
+        id: `${idx}_${s.start.toISOString()}`,
+        label: s.label,
+        startTime: s.start.toISOString(),
+        endTime: s.end.toISOString(),
+      }));
+
+      console.log('[FREEBUSY] Returning available slots:', result.length);
+      res.json({ ok: true, data: result });
+      
+    } catch (authError) {
+      console.error('[FREEBUSY] Auth error:', authError.message);
+      return res.status(500).json({ ok: false, error: 'Authentication failed', details: authError.message });
     }
     
-    const auth = new google.auth.GoogleAuth(authConfig);
-    const client = await auth.getClient();
-    const calendar = google.calendar({ version: 'v3', auth: client });
-
-    // Ask Google for busy periods on that date
-    const timeMin = new Date(dateStr + 'T00:00:00');
-    const timeMax = new Date(dateStr + 'T23:59:59');
-
-    const fb = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        items: [{ id: email }],
-      },
-    });
-
-    const busy = (fb.data.calendars?.[email]?.busy || []).map(b => ({
-      start: new Date(b.start),
-      end: new Date(b.end),
-    }));
-
-    // helper: check overlap
-    const overlaps = (a, b) => a.start < b.end && b.start < a.end;
-
-    // Filter candidates that do NOT overlap with any busy interval
-    const available = candidateSlots.filter(slot => {
-      return !busy.some(b => overlaps(slot, b));
-    });
-
-    // Shape response
-    const result = available.map((s, idx) => ({
-      id: `${idx}_${s.start.toISOString()}`,
-      label: s.label,
-      startTime: s.start.toISOString(),
-      endTime: s.end.toISOString(),
-    }));
-
-    res.json({ ok: true, data: result });
   } catch (e) {
+    console.error('[FREEBUSY] General error:', e.message, e.stack);
     next(e);
   }
 });

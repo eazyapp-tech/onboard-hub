@@ -18,10 +18,8 @@ const config = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  productionBrowserSourceMaps: true,
+  productionBrowserSourceMaps: false,
   webpack: (config, { isServer }) => {
-    config.stats = "verbose";
-    config.devtool = 'source-map'
     // Enhanced node polyfills for postgres and other modules
     if (!isServer) {
       config.resolve.fallback = {
@@ -41,15 +39,16 @@ const config = {
     }
     return config;
   },
-  async rewrites() { const backend = process.env.BACKEND_URL || 'https://onboard-hun-backend-1.onrender.com';
-  return [
-    // keep your source maps passthrough
-    { source: '/_next/:path*.map', destination: '/_next/:path*.map' },
+  async rewrites() {
+    const backend = process.env.BACKEND_URL || 'https://onboard-hun-backend-1.onrender.com';
+    return [
+      // keep your source maps passthrough
+      { source: '/_next/:path*.map', destination: '/_next/:path*.map' },
 
-    // NEW: proxy API + health to Express backend
-    { source: '/api/:path*', destination: `${backend}/api/:path*` },
-    { source: '/health',     destination: `${backend}/health` },
-  ];
-},
+      // NEW: proxy API + health to Express backend
+      { source: '/api/:path*', destination: `${backend}/api/:path*` },
+      { source: '/health',     destination: `${backend}/health` },
+    ];
+  },
 };
 export default config;

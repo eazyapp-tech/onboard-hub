@@ -1,44 +1,36 @@
-import { withAuth } from 'next-auth/middleware'
+// Temporarily commenting out Clerk authentication middleware
+/*
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 
-export default withAuth(
-  function middleware(req) {
-    console.log('Middleware running for:', req.nextUrl.pathname)
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        console.log('Authorization check:', { 
-          path: req.nextUrl.pathname, 
-          hasToken: !!token,
-          tokenEmail: token?.email 
-        })
-        
-        // For local development, allow access if no Google OAuth configured
-        const isLocalDev = process.env.NODE_ENV === 'development' && 
-                          (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your-google-client-id-here');
-        
-        if (isLocalDev) {
-          console.log('Local development mode - allowing access');
-          return true;
-        }
-        
-        // For production, check if token exists
-        return !!token
-      },
-    },
+const isPublicRoute = createRouteMatcher([
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/sso-callback(.*)',
+  '/.well-known/(.*)', // ✅ OAuth callback files
+  '/post-auth',         // ✅ our handoff page
+  '/',
+])
+
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect()
   }
-)
+})
+*/
+
+// Simple middleware without authentication
+import { NextRequest, NextResponse } from 'next/server'
+
+export default function middleware(request: NextRequest) {
+  // Allow all requests to pass through without authentication
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api/auth (authentication routes)
-     * - auth (authentication pages)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!api/auth|auth|_next/static|_next/image|favicon.ico).*)',
+    // Skip Next.js internals and all static files, unless found in search params
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)',
   ],
 }
