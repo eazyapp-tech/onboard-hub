@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Filter, Play, Clock, MapPin, Phone, User } from 'lucide-react';
+import { Calendar, Filter, Play, Clock, MapPin, Phone, User, CheckCircle, Download, RotateCcw, X } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { CIS_USERS, SLOT_WINDOWS, LOCATION_OPTIONS, OnboardingStatus, StatusHistoryItem } from '@/types';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '@/lib/config';
+import OnboardingCompleteModal from '@/components/onboarding-complete-modal';
 
 type OnboardingRow = {
   id: string;
@@ -28,10 +29,14 @@ function OnboardingDetailPanel({
   item,
   onClose,
   onStatusChange,
+  onCompleteOnboarding,
+  onReopenOnboarding,
 }: {
   item: any; // Booking type
   onClose: () => void;
   onStatusChange: (status: OnboardingStatus, note?: string) => void;
+  onCompleteOnboarding: () => void;
+  onReopenOnboarding: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({
@@ -49,6 +54,7 @@ function OnboardingDetailPanel({
       case 'Onboarding Started': return 'bg-yellow-100 text-yellow-700';
       case 'Onboarding Delayed': return 'bg-orange-100 text-orange-700';
       case 'Onboarding Done': return 'bg-green-100 text-green-700';
+      case 'Reopened': return 'bg-blue-100 text-blue-700';
       default: return 'bg-gray-100 text-gray-700';
     }
   };
@@ -101,6 +107,19 @@ function OnboardingDetailPanel({
       totalAmount: item.totalAmount,
     });
     setIsEditing(false);
+  };
+
+  const handleDownloadFile = (file: File, fileName: string) => {
+    // Create a URL for the file and trigger download
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Downloading ${fileName}`);
   };
 
   return (
@@ -248,6 +267,97 @@ function OnboardingDetailPanel({
             </p>
           </div>
 
+          {/* Completed Onboarding Details */}
+          {item.actualOnboardingDate && (() => {
+            console.log('[OnboardingDetailPanel] Item data:', { 
+              onboardingAddons: item.onboardingAddons, 
+              attachmentUrls: item.attachmentUrls 
+            });
+            return (
+              <div className="glass p-3 rounded-lg bg-green-50/50">
+                <p className="font-medium mb-2 text-green-700">✓ Onboarding Completed</p>
+                <div className="space-y-2 text-sm">
+                  <p><b>Actual Date:</b> {format(new Date(item.actualOnboardingDate), 'MMM d, yyyy')}</p>
+                  {item.actualOnboardingTime && (
+                    <p><b>Actual Time:</b> {item.actualOnboardingTime}</p>
+                  )}
+                  {item.notes && (
+                    <div className="mt-2">
+                      <p className="font-medium">Notes:</p>
+                      <p className="text-muted-foreground bg-white/60 p-2 rounded mt-1">{item.notes}</p>
+                    </div>
+                  )}
+                  {item.onboardingAddons && Array.isArray(item.onboardingAddons) && item.onboardingAddons.length > 0 && (
+                  <div className="mt-2">
+                    <p className="font-medium">Add-ons Sold:</p>
+                    <div className="space-y-1 mt-1">
+                      {item.onboardingAddons.map((addon: any, idx: number) => (
+                        <div key={idx} className="bg-white/60 p-2 rounded flex justify-between items-center">
+                          <span>{addon.name} (x{addon.quantity})</span>
+                          <span className="font-medium">₹{(addon.quantity * addon.unitPrice).toLocaleString()}</span>
+                        </div>
+                      ))}
+                      <div className="bg-green-100 p-2 rounded flex justify-between items-center font-semibold mt-2">
+                        <span>Total Add-ons:</span>
+                        <span>₹{item.onboardingAddons.reduce((sum: number, a: any) => sum + (a.quantity * a.unitPrice), 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                  {item.attachmentUrls && (item.attachmentUrls.checklist?.length > 0 || item.attachmentUrls.reviews?.length > 0) && (
+                    <div className="mt-2">
+                      <p className="font-medium">Attachments:</p>
+                      <div className="space-y-2 mt-1">
+                        {item.attachmentUrls.checklist && item.attachmentUrls.checklist.length > 0 && (
+                          <div className="bg-white/60 p-2 rounded">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="font-medium text-xs">Checklist ({item.attachmentUrls.checklist.length} file(s))</p>
+                            </div>
+                            <div className="space-y-1">
+                              {item.attachmentUrls.checklist.map((file: File, idx: number) => (
+                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded">
+                                  <span className="truncate flex-1">{file.name}</span>
+                                  <button
+                                    onClick={() => handleDownloadFile(file, file.name)}
+                                    className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
+                                    title="Download file"
+                                  >
+                                    <Download className="w-3 h-3 text-blue-600" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {item.attachmentUrls.reviews && item.attachmentUrls.reviews.length > 0 && (
+                          <div className="bg-white/60 p-2 rounded">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="font-medium text-xs">Reviews ({item.attachmentUrls.reviews.length} file(s))</p>
+                            </div>
+                            <div className="space-y-1">
+                              {item.attachmentUrls.reviews.map((file: File, idx: number) => (
+                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded">
+                                  <span className="truncate flex-1">{file.name}</span>
+                                  <button
+                                    onClick={() => handleDownloadFile(file, file.name)}
+                                    className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
+                                    title="Download file"
+                                  >
+                                    <Download className="w-3 h-3 text-blue-600" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Timeline */}
           <div className="glass p-3 rounded-lg">
             <p className="font-medium mb-2">Onboarding Journey</p>
@@ -277,13 +387,37 @@ function OnboardingDetailPanel({
               >
                 Delayed
               </button>
-              <button
-                onClick={() => onStatusChange('Onboarding Done')}
-                className="px-3 py-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200"
-              >
-                Done
-              </button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Use "Complete Onboarding" button below to mark as done
+            </p>
+          </div>
+
+          {/* Complete/Reopen Onboarding */}
+          <div className="glass p-3 rounded-lg">
+            {item.actualOnboardingDate ? (
+              <button
+                onClick={onReopenOnboarding}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 hover:shadow-lg transition-all font-medium"
+              >
+                <RotateCcw className="w-5 h-5" />
+                Reopen Onboarding
+              </button>
+            ) : (
+              <button
+                onClick={onCompleteOnboarding}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 gradient-primary text-white rounded-lg hover:shadow-lg transition-shadow font-medium"
+              >
+                <CheckCircle className="w-5 h-5" />
+                Complete Onboarding
+              </button>
+            )}
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              {item.actualOnboardingDate 
+                ? 'Reopen to edit or reschedule this onboarding'
+                : 'Fill out the complete onboarding form with all details'
+              }
+            </p>
           </div>
         </div>
       </div>
@@ -298,6 +432,9 @@ export function CisDashboard() {
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [modeFilter, setModeFilter] = useState<string>('all');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showDetailPanel, setShowDetailPanel] = useState(true);
+  const [showReopenModal, setShowReopenModal] = useState(false);
 
   // Get bookings from local store
   const myBookings = currentUser?.id ? getBookingsForCis(currentUser.id) : [];
@@ -323,7 +460,12 @@ export function CisDashboard() {
 
   const selected = filteredBookings.find(b => b.id === selectedOnboardingId);
 
-  const closePanel = () => setSelectedOnboarding(null);
+  const closePanel = () => {
+    setSelectedOnboarding(null);
+    setShowDetailPanel(true);
+    setShowCompleteModal(false);
+    setShowReopenModal(false);
+  };
 
   const changeStatus = (status: OnboardingStatus, note?: string) => {
     if (!selected) return;
@@ -331,6 +473,103 @@ export function CisDashboard() {
     // Update in store
     updateOnboardingStatus(selected.id, status, note);
     toast.success('Status updated');
+  };
+
+  const handleCompleteOnboarding = () => {
+    setShowDetailPanel(false);
+    setShowCompleteModal(true);
+  };
+
+  const handleBackToDetail = () => {
+    setShowCompleteModal(false);
+    setShowReopenModal(false);
+    setShowDetailPanel(true);
+  };
+
+  const handleReopenOnboarding = () => {
+    setShowDetailPanel(false);
+    setShowReopenModal(true);
+  };
+
+  const handleReopenSubmit = async (payload: any) => {
+    console.log('[CIS-DASHBOARD] Reopening onboarding with payload:', payload);
+    
+    if (!selected) return;
+    
+    // Extract rescheduled data from payload - CLEAR completion data to show "Complete Onboarding" button again
+    const rescheduleData = {
+      date: payload.newDate,
+      slotWindow: payload.newSlotWindow,
+      // Clear all completion data
+      actualOnboardingDate: null,
+      actualOnboardingTime: null,
+      notes: payload.notes || '',
+      onboardingAddons: [],
+      attachmentUrls: {
+        checklist: [],
+        reviews: []
+      },
+      updatedAt: new Date().toISOString()
+    };
+    
+    console.log('[CIS-DASHBOARD] Reschedule data (completion cleared):', rescheduleData);
+    
+    // Update booking with rescheduled data
+    const { updateBooking } = useAppStore.getState();
+    updateBooking(selected.id, rescheduleData);
+    
+    // Update status to "Reopened"
+    updateOnboardingStatus(
+      selected.id, 
+      'Reopened', 
+      `Onboarding reopened and rescheduled to ${format(new Date(payload.newDate), 'MMM d, yyyy')} at ${payload.newSlotWindow}`
+    );
+    
+    // Close reopen modal and show detail panel with updated data
+    setShowReopenModal(false);
+    setShowDetailPanel(true);
+    // Keep the booking selected so detail panel shows updated data
+    
+    toast.success('Onboarding reopened and rescheduled successfully!');
+  };
+
+  const handleOnboardingSubmit = async (payload: any) => {
+    console.log('[CIS-DASHBOARD] Onboarding completed with payload:', payload);
+    
+    if (!selected) return;
+    
+    // Extract data from payload
+    const completionData = {
+      actualOnboardingDate: format(new Date(payload.completedAt), 'yyyy-MM-dd'),
+      actualOnboardingTime: format(new Date(payload.completedAt), 'HH:mm'),
+      notes: payload.notes || '',
+      onboardingAddons: payload.addons || [],
+      attachmentUrls: {
+        checklist: payload.attachments?.checklist || [],
+        reviews: payload.attachments?.reviews || []
+      }
+    };
+    
+    console.log('[CIS-DASHBOARD] Extracted completion data:', completionData);
+    
+    // Update booking with completion data
+    const { updateBooking } = useAppStore.getState();
+    updateBooking(selected.id, {
+      ...completionData,
+      updatedAt: new Date().toISOString()
+    });
+    
+    console.log('[CIS-DASHBOARD] Updated booking in store');
+    
+    // Update status to "Onboarding Done"
+    updateOnboardingStatus(selected.id, 'Onboarding Done', `Onboarding completed on ${completionData.actualOnboardingDate} at ${completionData.actualOnboardingTime}`);
+    
+    // Close both modals
+    setShowCompleteModal(false);
+    setShowDetailPanel(false);
+    setSelectedOnboarding(null);
+    
+    toast.success('Onboarding completed and saved successfully!');
   };
 
   return (
@@ -506,9 +745,12 @@ export function CisDashboard() {
                     case 'Onboarding Started': return 'bg-yellow-100 text-yellow-700';
                     case 'Onboarding Delayed': return 'bg-orange-100 text-orange-700';
                     case 'Onboarding Done': return 'bg-green-100 text-green-700';
+                    case 'Reopened': return 'bg-blue-100 text-blue-700';
                     default: return 'bg-gray-100 text-gray-700';
                   }
                 };
+                
+                const isCompleted = booking.actualOnboardingDate !== null && booking.actualOnboardingDate !== undefined;
                 
                 return (
                   <motion.tr 
@@ -516,9 +758,14 @@ export function CisDashboard() {
                     initial={{ opacity: 0, y: 10 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     transition={{ delay: index * 0.05 }} 
-                    className="border-t border-glass-border hover:bg-white/5 transition-colors"
+                    className={`border-t border-glass-border hover:bg-white/5 transition-colors ${isCompleted ? 'bg-green-50/30' : ''}`}
                   >
-                    <td className="p-2 sm:p-4 text-xs sm:text-sm">{booking.portfolioManager}</td>
+                    <td className="p-2 sm:p-4 text-xs sm:text-sm">
+                      <div className="flex items-center gap-2">
+                        {isCompleted && <CheckCircle className="w-4 h-4 text-green-600" />}
+                        {booking.portfolioManager}
+                      </div>
+                    </td>
                     <td className="p-2 sm:p-4 text-xs sm:text-sm">{format(new Date(booking.date), 'MMM d, yyyy')}</td>
                     <td className="p-2 sm:p-4 text-xs sm:text-sm hidden sm:table-cell">{slot?.label}</td>
                     <td className="p-2 sm:p-4 text-xs sm:text-sm hidden md:table-cell capitalize">{booking.bookingLocation.replace('_', ' ')}</td>
@@ -529,9 +776,16 @@ export function CisDashboard() {
                       {booking.ownerPhone}
                     </td>
                     <td className="p-2 sm:p-4">
-                      <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.onboardingStatus)}`}>
-                        {booking.onboardingStatus}
-                      </span>
+                      {isCompleted ? (
+                        <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1 inline-flex">
+                          <CheckCircle className="w-3 h-3" />
+                          Onboarding Completed
+                        </span>
+                      ) : (
+                        <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.onboardingStatus)}`}>
+                          {booking.onboardingStatus}
+                        </span>
+                      )}
                     </td>
                     <td className="p-2 sm:p-4">
                       <motion.button 
@@ -560,13 +814,191 @@ export function CisDashboard() {
         </div>
       </motion.div>
 
-      {selected && (
+      {selected && showDetailPanel && (
         <OnboardingDetailPanel
           item={selected}
           onClose={closePanel}
           onStatusChange={changeStatus}
+          onCompleteOnboarding={handleCompleteOnboarding}
+          onReopenOnboarding={handleReopenOnboarding}
         />
       )}
+
+      {selected && showCompleteModal && (
+        <OnboardingCompleteModal
+          isOpen={showCompleteModal}
+          onClose={handleBackToDetail}
+          booking={{
+            ownerName: selected.ownerName,
+            email: selected.ownerEmail,
+            phone: selected.ownerPhone,
+            rentOkId: selected.rentokId,
+            propertiesCount: selected.noOfProperties,
+            bedsCount: selected.noOfBeds,
+            location: LOCATION_OPTIONS.find(l => l.value === selected.bookingLocation)?.label || selected.bookingLocation
+          }}
+          defaultDate={new Date(selected.date)}
+          defaultTime={format(new Date(), "HH:mm")}
+          onSubmit={handleOnboardingSubmit}
+        />
+      )}
+
+      {selected && showReopenModal && (
+        <ReopenOnboardingModal
+          isOpen={showReopenModal}
+          onClose={handleBackToDetail}
+          booking={selected}
+          onSubmit={handleReopenSubmit}
+        />
+      )}
+    </div>
+  );
+}
+
+// Reopen Onboarding Modal Component
+function ReopenOnboardingModal({
+  isOpen,
+  onClose,
+  booking,
+  onSubmit
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  booking: any;
+  onSubmit: (payload: any) => void;
+}) {
+  const [newDate, setNewDate] = useState(booking.date || format(new Date(), 'yyyy-MM-dd'));
+  const [newSlotWindow, setNewSlotWindow] = useState(booking.slotWindow || '10_13');
+  const [actualDate, setActualDate] = useState(booking.actualOnboardingDate || '');
+  const [actualTime, setActualTime] = useState(booking.actualOnboardingTime || '');
+  const [notes, setNotes] = useState(booking.notes || '');
+  const [addons, setAddons] = useState(booking.onboardingAddons || []);
+
+  const handleSubmit = () => {
+    if (!newDate || !newSlotWindow) {
+      toast.error('Please select a new date and time slot');
+      return;
+    }
+
+    onSubmit({
+      newDate,
+      newSlotWindow,
+      actualOnboardingDate: actualDate,
+      actualOnboardingTime: actualTime,
+      notes,
+      addons,
+      attachmentUrls: booking.attachmentUrls || { checklist: [], reviews: [] }
+    });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="glass rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <RotateCcw className="w-6 h-6" />
+              Reopen & Reschedule Onboarding
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Edit details and reschedule for {booking.ownerName}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          {/* Current Completion Info */}
+          <div className="glass p-4 rounded-xl bg-green-50/30">
+            <p className="font-semibold text-green-700 mb-2">✓ Previous Completion Details</p>
+            <div className="text-sm space-y-1">
+              {booking.actualOnboardingDate && (
+                <p><b>Completed on:</b> {format(new Date(booking.actualOnboardingDate), 'MMM d, yyyy')} at {booking.actualOnboardingTime}</p>
+              )}
+              {booking.notes && <p><b>Notes:</b> {booking.notes}</p>}
+              {booking.onboardingAddons && booking.onboardingAddons.length > 0 && (
+                <p><b>Add-ons:</b> {booking.onboardingAddons.length} item(s)</p>
+              )}
+            </div>
+          </div>
+
+          {/* Reschedule Section */}
+          <div className="space-y-4">
+            <h3 className="font-semibold text-lg">Reschedule Onboarding</h3>
+            
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  New Date <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={newDate}
+                  onChange={(e) => setNewDate(e.target.value)}
+                  className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  New Time Slot <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newSlotWindow}
+                  onChange={(e) => setNewSlotWindow(e.target.value)}
+                  className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {SLOT_WINDOWS.map(slot => (
+                    <option key={slot.value} value={slot.value}>{slot.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Update Notes (Optional)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Add any notes about why the onboarding is being reopened..."
+                className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              />
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-glass-border">
+            <button
+              onClick={onClose}
+              className="px-6 py-3 rounded-lg border border-glass-border hover:bg-white/10 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              className="flex items-center gap-2 px-6 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 hover:shadow-lg transition-all font-medium"
+            >
+              <RotateCcw className="w-5 h-5" />
+              Reopen & Reschedule
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }

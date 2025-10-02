@@ -98,10 +98,12 @@ export const SLOT_WINDOWS = [
 ] as const;
 
 export const CIS_USERS = [
-  { id: 'megha', name: 'Megha Verma', email: 'meghav@eazyapp.tech' },
-  { id: 'manish', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
-  { id: 'vikash', name: 'Vikash Jarwal', email: 'vikash.b@eazyapp.tech' },
-  { id: 'harsh', name: 'Harsh', email: 'harsh@eazyapp.tech' }
+  { id: 'manish-arora', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
+  { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
+  { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash.b@eazyapp.tech' },
+  { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti.k@eazyapp.tech' },
+  { id: 'megha-verma', name: 'Megha Verma', email: 'meghav@eazyapp.tech' },
+  { id: 'aditya-shrivastav', name: 'Aditya Shrivastav', email: 'aditya@eazyapp.tech' }
 ] as const;
 
 export const BDE_USERS = [
@@ -113,7 +115,8 @@ export const BDE_USERS = [
 export type OnboardingStatus =
   | 'Onboarding Started'
   | 'Onboarding Delayed'
-  | 'Onboarding Done';
+  | 'Onboarding Done'
+  | 'Reopened';
 
 // Each status change we log with time
 export interface StatusHistoryItem {

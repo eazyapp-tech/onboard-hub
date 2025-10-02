@@ -35,6 +35,7 @@ app.use(helmet());
 // CORS configuration for production
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://start.rentok.com',
   'https://frontend-frdf20knw-nimitjns-projects.vercel.app',
   'https://onboard-hun-backend-1.onrender.com'
@@ -295,7 +296,7 @@ async function createCalendarEvent(payload) {
           'https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/calendar',
         ],
-        clientOptions: { subject: cisEmail }, // impersonate THIS user only
+        subject: cisEmail, // impersonate THIS user only
       };
     } else {
       // It's a file path (local environment)
@@ -305,16 +306,26 @@ async function createCalendarEvent(payload) {
           'https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/calendar',
         ],
-        clientOptions: { subject: cisEmail }, // impersonate THIS user only
+        subject: cisEmail, // impersonate THIS user only
       };
     }
     
-    const auth = new google.auth.GoogleAuth(authConfig);
+    let auth;
+    try {
+      auth = new google.auth.JWT(authConfig);
+      await auth.authorize(); // Authorize immediately to catch auth issues
+      console.log('[CALENDAR] Auth successful for:', cisEmail);
+    } catch (authError) {
+      console.error('[CALENDAR] Auth failed for CIS:', cisEmail, 'Error:', authError.message);
+      throw new Error(`Authentication failed for ${cisEmail}: ${authError.message}`);
+    }
 
     // Create calendar client with dynamic auth
     const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
   
     const calendarId = process.env.CALENDAR_ID || 'primary';
+    
+    console.log('[CALENDAR] Creating event for CIS:', cisEmail, 'calendar:', calendarId);
   
     const event = {
       summary: payload.summary || `Visit/Call with ${payload.fullName}`,
@@ -328,11 +339,15 @@ async function createCalendarEvent(payload) {
       ],
     };
   
+    console.log('[CALENDAR] Event details:', event);
+    
     const { data } = await dynamicCalendarClient.events.insert({
       calendarId,
       requestBody: event,
       sendUpdates: 'all', // invitations are sent by the impersonated user
     });
+    
+    console.log('[CALENDAR] Event created successfully:', { id: data.id, htmlLink: data.htmlLink });
   
     return data; // contains id, htmlLink, etc.
   }
@@ -426,6 +441,14 @@ app.post('/api/onboarding', async (req, res, next) => {
 
 // Create booking: calendar event + save to Mongo + append to Bookings sheet
 app.post('/api/bookings', async (req, res, next) => {
+  // Set a timeout for the entire booking creation process
+  const timeoutId = setTimeout(() => {
+    console.error('[BOOKING] Timeout: Booking creation took too long, sending timeout response');
+    if (!res.headersSent) {
+      res.status(408).json({ ok: false, error: 'Request timeout', details: 'Booking creation timed out' });
+    }
+  }, 30000); // 30 second timeout
+
   try {
     const parsed = bookingZ.parse(req.body);
 
@@ -436,22 +459,37 @@ app.post('/api/bookings', async (req, res, next) => {
     }
 
     // Calendar
-    const event = await createCalendarEvent({
-      ...parsed,
-      startTime: parsed.startTime,
-      endTime: parsed.endTime,
-      cisEmail, // pass CIS email for impersonation
-    });
+    console.log('[BOOKING] Creating calendar event for CIS:', cisEmail);
+    let event;
+    try {
+      event = await createCalendarEvent({
+        ...parsed,
+        startTime: parsed.startTime,
+        endTime: parsed.endTime,
+        cisEmail, // pass CIS email for impersonation
+      });
+      console.log('[BOOKING] Calendar event created successfully:', event.id);
+    } catch (calendarError) {
+      console.error('[BOOKING] Calendar event creation failed:', calendarError.message);
+      return res.status(500).json({ 
+        ok: false, 
+        error: 'Failed to create calendar event', 
+        details: calendarError.message 
+      });
+    }
 
     // Mongo
+    console.log('[BOOKING] Creating booking record in MongoDB...');
     const booking = await Booking.create({
       ...parsed,
       startTime: new Date(parsed.startTime),
       endTime: new Date(parsed.endTime),
       calendarEventId: event.id,
     });
+    console.log('[BOOKING] Booking record created:', booking._id);
 
     // Sheets
+    console.log('[BOOKING] Appending to bookings sheet...');
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     const values = [
       now,
@@ -473,64 +511,120 @@ app.post('/api/bookings', async (req, res, next) => {
       await appendToSheet({ spreadsheetId: BOOKINGS_SHEET_ID, values });
       booking.sheetSynced = true;
       await booking.save();
+      console.log('[BOOKING] Successfully synced to bookings sheet');
     } catch (e) {
       console.error('[Sheets] Append failed:', e.message);
     }
 
-    // Update the onboarding record with calendar event details
-    try {
+    // Update the onboarding record with calendar event details (non-blocking)
+    console.log('[BOOKING] Queuing onboarding record update...');
+    setImmediate(async () => {
+      try {
       // Find the onboarding record that was created for this booking
+      console.log('[BOOKING] Searching for onboarding record:', { propertyId: parsed.propertyId, name: parsed.fullName });
       const onboardingRecord = await Onboarding.findOne({ 
         propertyId: parsed.propertyId,
         name: parsed.fullName 
       }).sort({ createdAt: -1 });
 
       if (onboardingRecord) {
+        console.log('[BOOKING] Found onboarding record:', onboardingRecord._id);
         // Update the onboarding record with calendar event ID
         onboardingRecord.calendarEventId = event.id;
         await onboardingRecord.save();
+        console.log('[BOOKING] Onboarding record updated with calendar event ID');
 
         // Update the sheets with calendar event link
-        const sheets = google.sheets({ version: 'v4', auth: sheetsClient });
-        const response = await sheets.spreadsheets.values.get({
-          spreadsheetId: DEALS_SHEET_ID,
-          range: `${SHEET_TAB_NAME}!A:Z`,
-        });
+        console.log('[BOOKING] Updating sheets with calendar event link...');
+        try {
+          // Create a fresh authenticated client for sheets
+          let authConfig;
+          
+          // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
+          if (GOOGLE_KEYFILE.startsWith('{')) {
+            // It's a JSON string (Render environment) - write to temp file
+            const credentials = JSON.parse(GOOGLE_KEYFILE);
+            const tempKeyFile = '/tmp/google-credentials-sheets.json';
+            fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+            authConfig = {
+              keyFile: tempKeyFile,
+              scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+              subject: process.env.GSUITE_IMPERSONATE_USER
+            };
+          } else {
+            // It's a file path (local environment)
+            authConfig = {
+              keyFile: GOOGLE_KEYFILE,
+              scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+              subject: process.env.GSUITE_IMPERSONATE_USER
+            };
+          }
+          
+          const auth = new google.auth.JWT(authConfig);
+          const sheets = google.sheets({ version: 'v4', auth });
+          
+          console.log('[BOOKING] Fetching deals sheet data...');
+          const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: DEALS_SHEET_ID,
+            range: `${SHEET_TAB_NAME}!A:Z`,
+          });
 
-        const rows = response.data.values || [];
-        const headerRow = rows[0];
-        const idColumnIndex = headerRow.findIndex(col => col.toLowerCase().includes('id'));
+          const rows = response.data.values || [];
+          console.log('[BOOKING] Sheet data fetched, rows:', rows.length);
+          
+          if (rows.length === 0) {
+            console.log('[BOOKING] No rows found in sheet, skipping update');
+          } else {
+            const headerRow = rows[0];
+            const idColumnIndex = headerRow.findIndex(col => col.toLowerCase().includes('id'));
 
-        if (idColumnIndex !== -1) {
-          for (let i = 1; i < rows.length; i++) {
-            if (rows[i][idColumnIndex] === onboardingRecord._id.toString()) {
-              // Update the calendar event ID column
-              const calendarEventColumnIndex = headerRow.findIndex(col => 
-                col.toLowerCase().includes('calendar') || col.toLowerCase().includes('event')
-              );
-              
-              if (calendarEventColumnIndex !== -1) {
-                await sheets.spreadsheets.values.update({
-                  spreadsheetId: DEALS_SHEET_ID,
-                  range: `${SHEET_TAB_NAME}!${String.fromCharCode(65 + calendarEventColumnIndex)}${i + 1}`,
-                  valueInputOption: 'RAW',
-                  requestBody: {
-                    values: [[event.htmlLink || event.id]]
+            if (idColumnIndex !== -1) {
+              console.log('[BOOKING] Searching for row with ID:', onboardingRecord._id.toString());
+              for (let i = 1; i < rows.length; i++) {
+                if (rows[i][idColumnIndex] === onboardingRecord._id.toString()) {
+                  // Update the calendar event ID column
+                  const calendarEventColumnIndex = headerRow.findIndex(col => 
+                    col.toLowerCase().includes('calendar') || col.toLowerCase().includes('event')
+                  );
+                  
+                  if (calendarEventColumnIndex !== -1) {
+                    console.log('[BOOKING] Updating calendar event in sheet, row:', i + 1);
+                    await sheets.spreadsheets.values.update({
+                      spreadsheetId: DEALS_SHEET_ID,
+                      range: `${SHEET_TAB_NAME}!${String.fromCharCode(65 + calendarEventColumnIndex)}${i + 1}`,
+                      valueInputOption: 'RAW',
+                      requestBody: {
+                        values: [[event.htmlLink || event.id]]
+                      }
+                    });
+                    console.log('[BOOKING] Sheet updated successfully');
+                  } else {
+                    console.log('[BOOKING] Calendar event column not found in sheet');
                   }
-                });
+                  break;
+                }
               }
-              break;
+            } else {
+              console.log('[BOOKING] ID column not found in sheet');
             }
           }
+        } catch (sheetUpdateError) {
+          console.error('[BOOKING] Sheet update failed:', sheetUpdateError.message);
         }
       }
-    } catch (calendarUpdateError) {
-      console.error('Failed to update onboarding with calendar event:', calendarUpdateError);
-      // Don't fail the booking creation if calendar update fails
-    }
+      } catch (calendarUpdateError) {
+        console.error('Failed to update onboarding with calendar event:', calendarUpdateError);
+      }
+    });
 
+    // Clear the timeout since we're about to respond
+    clearTimeout(timeoutId);
+    
+    console.log('[BOOKING] Sending final response...');
     res.status(201).json({ ok: true, data: { booking, eventLink: event.htmlLink } });
+    console.log('[BOOKING] Booking creation completed successfully');
   } catch (err) {
+    clearTimeout(timeoutId);
     if (err instanceof z.ZodError) {
       return res.status(400).json({ ok: false, error: 'Invalid payload', details: err.flatten() });
     }
@@ -883,6 +977,9 @@ app.get('/api/freebusy', async (req, res, next) => {
     const email = String(req.query.email || '').trim();
     const dateStr = String(req.query.date || '').trim(); // yyyy-mm-dd
     const mode = String(req.query.mode || 'physical').trim(); // 'physical' | 'virtual'
+    const cisId = String(req.query.cisId || '').trim(); // CIS user ID for slot logic
+
+    console.log('[FREEBUSY] Processing request:', { email, dateStr, mode, cisId });
 
     if (!email || !dateStr) {
       console.log('[FREEBUSY] Missing required params:', { email, dateStr });
@@ -905,19 +1002,21 @@ app.get('/api/freebusy', async (req, res, next) => {
     );
 
     let candidateSlots = [];
-    if (mode === 'virtual') {
-      // 2h: 10-12, 15-17; 1h: 18-19
+    
+    // Generate slots based on CIS user (not mode)
+    if (cisId === 'manish-arora' || cisId === 'vikash-jarwal') {
+      // Manish and Vikas: 3-hour slots
       candidateSlots = [
-        { start: mk(10), end: mk(12), label: '10 AM – 12 PM (2h)' },
-        { start: mk(15), end: mk(17), label: '3 PM – 5 PM (2h)' },
+        { start: mk(10), end: mk(13), label: '10 AM – 1 PM (3h)' },
+        { start: mk(14), end: mk(17), label: '2 PM – 5 PM (3h)' },
         { start: mk(18), end: mk(19), label: '6 PM – 7 PM (1h)' },
       ];
     } else {
-      // physical: 3h blocks till 6 PM, plus 1h 6–7
+      // All others (Harsh, Jyoti, Megha, Aditya, etc.): 2-hour slots
       candidateSlots = [
-        { start: mk(10), end: mk(13), label: '10 AM – 1 PM (3h)' },
-        { start: mk(13), end: mk(16), label: '1 PM – 4 PM (3h)' },
-        { start: mk(14), end: mk(17), label: '2 PM – 5 PM (3h)' }, // extra option
+        { start: mk(10), end: mk(12), label: '10 AM – 12 PM (2h)' },
+        { start: mk(13), end: mk(14), label: '1 PM – 2 PM (1h)' },
+        { start: mk(15), end: mk(17), label: '3 PM – 5 PM (2h)' },
         { start: mk(18), end: mk(19), label: '6 PM – 7 PM (1h)' },
       ];
     }
@@ -1006,6 +1105,7 @@ app.get('/api/freebusy', async (req, res, next) => {
     next(e);
   }
 });
+
 
 // 13) Start server
 app.listen(PORT, () => {

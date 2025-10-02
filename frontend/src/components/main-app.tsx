@@ -11,15 +11,22 @@ import { CisDashboard } from '@/components/cis-dashboard';
 import { TodayBookingsModal } from '@/components/today-bookings-modal';
 
 const SALES_USERS = [
-  { id: 'siddhant', name: 'Siddhant', email: 'siddhant@eazyapp.tech' },
-  { id: 'pankaj',   name: 'Pankaj',   email: 'pankaj@eazyapp.tech' },
-  { id: 'ayush',    name: 'Ayush',    email: 'ayush@eazyapp.tech' },
-  { id: 'harsh',    name: 'Harsh',    email: 'harsh@eazyapp.tech' },
+  { id: 'abhishek-wadia', name: 'Abhishek Wadia', email: 'abhishek.wadia@eazyapp.tech' },
+  { id: 'akash-kumar-sao', name: 'Akash Kumar Sao', email: 'akash.k@eazyapp.tech' },
   { id: 'prashant', name: 'Prashant', email: 'prashant@eazyapp.tech' },
-  { id: 'amit',     name: 'Amit',     email: 'amit@eazyapp.tech' },
-  { id: 'ashish',   name: 'Ashish',   email: 'ashish@eazyapp.tech' },
-  { id: 'abhishek', name: 'Abhishek', email: 'abhishek@eazyapp.tech' },
-  { id: 'aditi',    name: 'Aditi',    email: 'aditi@eazyapp.tech' },
+  { id: 'somesh-g', name: 'Somesh G', email: 'somesh.g@eazyapp.tech' },
+  { id: 'aditis', name: 'Aditis', email: 'aditis@eazyapp.tech' },
+  { id: 'tabitha-d', name: 'Tabitha D', email: 'tabitha.d@eazyapp.tech' },
+  { id: 'amit', name: 'Amit', email: 'amit@eazyapp.tech' },
+  { id: 'bharat-k', name: 'Bharat K', email: 'bharat.k@eazyapp.tech' },
+  { id: 'kamalkant-upadhyay', name: 'Kamalkant Upadhyay', email: 'kamalkant.u@eazyapp.tech' },
+  { id: 'ashish-p', name: 'Ashish P', email: 'ashish.p@eazyapp.tech' },
+  { id: 'ayush-gupta', name: 'Ayush Gupta', email: 'ayush@eazyapp.tech' },
+  { id: 'siddhant-goswami', name: 'Siddhant Goswami', email: 'siddhant.goswami@eazyapp.tech' },
+  { id: 'pankaj', name: 'Pankaj', email: 'pankaj@eazyapp.tech' },
+  { id: 'sanjeev-jadhav', name: 'Sanjeev Jadhav', email: 'sanjeev@eazyapp.tech' },
+  { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
+  { id: 'pankaj-arora', name: 'Pankaj Arora', email: 'pankaj@eazyapp.tech' },
 ];
 
 function UserPicker({
@@ -218,9 +225,11 @@ export function MainApp() {
         <UserPicker
           title="Select Onboarding Person"
           users={[
-            { id: 'megha',  name: 'Megha',        email: 'megha@eazyapp.tech' },
-            { id: 'aditya', name: 'Aditya',       email: 'aditya@rentok.com' },
-            { id: 'manish', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
+            { id: 'manish-arora', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
+            { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
+            { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash.b@eazyapp.tech' },
+            { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti.k@eazyapp.tech' },
+            { id: 'megha-verma', name: 'Megha Verma', email: 'meghav@eazyapp.tech' },
           ]}
           onSelect={handleCisPicked}
           onBack={() => setAppState('role-selection')}

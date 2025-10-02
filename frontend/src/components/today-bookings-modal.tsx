@@ -2,10 +2,223 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Calendar, List, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { X, Calendar, List, ChevronLeft, ChevronRight, Download, Calendar as CalendarIcon } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { format, addDays, subDays } from 'date-fns';
 import { CIS_USERS, SLOT_WINDOWS } from '@/types';
+
+// Calendar Picker Component
+function CalendarPicker({ 
+  selectedDate, 
+  onDateSelect, 
+  isOpen, 
+  onClose 
+}: { 
+  selectedDate: string; 
+  onDateSelect: (date: string) => void; 
+  isOpen: boolean; 
+  onClose: () => void; 
+}) {
+  const today = new Date();
+  const selected = new Date(selectedDate);
+  
+  // Generate calendar days
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - firstDay.getDay()); // Start from Sunday
+    
+    const days = [];
+    const currentDay = new Date(startDate);
+    const endDay = new Date(startDate);
+    endDay.setDate(endDay.getDate() + 41); // 6 weeks
+    
+    while (currentDay <= endDay) {
+      days.push(new Date(currentDay));
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+    
+    return days;
+  };
+
+  const calendarDays = getDaysInMonth(selected);
+  const monthNames = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  
+  const isSameDay = (date1: Date, date2: Date) => 
+    date1.getFullYear() === date2.getFullYear() &&
+    date1.getMonth() === date2.getMonth() &&
+    date1.getDate() === date2.getDate();
+
+  // Month and year navigation functions
+  const goToPreviousMonth = () => {
+    const newDate = new Date(selected);
+    newDate.setMonth(newDate.getMonth() - 1);
+    const newDateStr = format(newDate, 'yyyy-MM-dd');
+    onDateSelect(newDateStr);
+    // Don't close the calendar, just navigate
+  };
+
+  const goToNextMonth = () => {
+    const newDate = new Date(selected);
+    newDate.setMonth(newDate.getMonth() + 1);
+    const newDateStr = format(newDate, 'yyyy-MM-dd');
+    onDateSelect(newDateStr);
+    // Don't close the calendar, just navigate
+  };
+
+  const goToPreviousYear = () => {
+    const newDate = new Date(selected);
+    newDate.setFullYear(newDate.getFullYear() - 1);
+    const newDateStr = format(newDate, 'yyyy-MM-dd');
+    onDateSelect(newDateStr);
+    // Don't close the calendar, just navigate
+  };
+
+  const goToNextYear = () => {
+    const newDate = new Date(selected);
+    newDate.setFullYear(newDate.getFullYear() + 1);
+    const newDateStr = format(newDate, 'yyyy-MM-dd');
+    onDateSelect(newDateStr);
+    // Don't close the calendar, just navigate
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-60"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 flex items-center justify-center z-60 p-4"
+          >
+            <div className="glass rounded-xl p-6 max-w-md w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Select Date</h3>
+                <button onClick={onClose} className="p-1 hover:bg-white/20 rounded">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                {/* Year Navigation */}
+                <div className="flex items-center justify-between mb-2">
+                  <button 
+                    onClick={goToPreviousYear}
+                    className="p-1 rounded hover:bg-white/20 transition-colors"
+                    title="Previous Year"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <h3 className="text-lg font-semibold text-center flex-1">
+                    {selected.getFullYear()}
+                  </h3>
+                  <button 
+                    onClick={goToNextYear}
+                    className="p-1 rounded hover:bg-white/20 transition-colors"
+                    title="Next Year"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {/* Month Navigation */}
+                <div className="flex items-center justify-between">
+                  <button 
+                    onClick={goToPreviousMonth}
+                    className="p-1 rounded hover:bg-white/20 transition-colors"
+                    title="Previous Month"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <h2 className="text-xl font-bold">
+                    {monthNames[selected.getMonth()]}
+                  </h2>
+                  <button 
+                    onClick={goToNextMonth}
+                    className="p-1 rounded hover:bg-white/20 transition-colors"
+                    title="Next Month"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Quick Action Buttons */}
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    const today = new Date();
+                    onDateSelect(format(today, 'yyyy-MM-dd'));
+                    onClose();
+                  }}
+                  className="flex-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                >
+                  Today
+                </button>
+                <button 
+                  onClick={() => {
+                    const thisMonth = new Date(selected.getFullYear(), selected.getMonth(), 1);
+                    onDateSelect(format(thisMonth, 'yyyy-MM-dd'));
+                  }}
+                  className="flex-1 px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                >
+                  This Month
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-7 gap-1 mb-2 mt-4">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                  <div key={day} className="text-center text-sm font-medium text-muted-foreground p-2">
+                    {day}
+                  </div>
+                ))}
+              </div>
+              
+              <div className="grid grid-cols-7 gap-1">
+                {calendarDays.map((day, index) => {
+                  const isCurrentMonth = day.getMonth() === selected.getMonth();
+                  const isSelected = isSameDay(day, selected);
+                  const isToday = isSameDay(day, today);
+                  
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        onDateSelect(format(day, 'yyyy-MM-dd'));
+                        onClose();
+                      }}
+                      className={`
+                        p-2 text-sm rounded-lg transition-colors
+                        ${!isCurrentMonth ? 'text-muted-foreground' : 'text-foreground'}
+                        ${isSelected ? 'bg-blue-600 text-white' : 'hover:bg-white/20'}
+                        ${isToday && !isSelected ? 'ring-2 ring-blue-600' : ''}
+                      `}
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
 interface TodayBookingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -16,19 +229,66 @@ export function TodayBookingsModal({
 }: TodayBookingsModalProps) {
   const [activeTab, setActiveTab] = useState<'calendar' | 'sheet'>('calendar');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
   const {
-    getBookingsByDate
+    getBookingsByDate,
+    currentUser
   } = useAppStore();
-  const bookings = getBookingsByDate(selectedDate);
+  
+  // Get all bookings for the selected date
+  const allBookings = getBookingsByDate(selectedDate);
+  
+  // Filter bookings based on user role
+  const bookings = allBookings.filter(booking => {
+    // If no current user, show all bookings
+    if (!currentUser) {
+      return true;
+    }
+    
+    // For SALES users: Show bookings they created
+    if (currentUser.role === 'sales') {
+      // Match by createdBy OR portfolioManager (no legacy fallback)
+      const matchByCreatedBy = booking.createdBy === currentUser.name;
+      const matchByPortfolioManager = booking.portfolioManager === currentUser.name;
+      
+      const shouldShow = matchByCreatedBy || matchByPortfolioManager;
+      
+      return shouldShow;
+    }
+    
+    // For CIS users: Show bookings assigned to them
+    if (currentUser.role === 'cis') {
+      return booking.cisId === currentUser.id;
+    }
+    
+    // For ADMIN users: Show all bookings
+    if (currentUser.role === 'admin') {
+      return true;
+    }
+    
+    // Default: no bookings
+    return false;
+  });
+  
   const exportCSV = () => {
     if (typeof window === 'undefined') return;
     const headers = ['Booking Ref', 'Person', 'Date', 'Slot Window', 'Location', 'Mode', 'Owner Name', 'Phone', 'RentOk ID', 'Salesperson', 'Status'];
     const rows = bookings.map(booking => {
       const cis = CIS_USERS.find(c => c.id === booking.cisId);
       const slot = SLOT_WINDOWS.find(s => s.value === booking.slotWindow);
-      return [booking.bookingRef, cis?.name || '', booking.date, slot?.label || '', booking.bookingLocation.replace('_', ' '), booking.mode, booking.ownerName, booking.ownerPhone, booking.rentokId, 'Sales Person',
-      // In real app, get from createdBy
-      booking.status];
+      return [
+        booking.bookingRef, 
+        cis?.name || '', 
+        booking.date, 
+        slot?.label || '', 
+        booking.bookingLocation.replace('_', ' '), 
+        booking.mode, 
+        booking.ownerName, 
+        booking.ownerPhone, 
+        booking.rentokId, 
+        booking.createdBy || 'Unknown', // Show actual salesperson name
+        booking.status
+      ];
     });
     const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
     const blob = new Blob([csvContent], {
@@ -37,7 +297,7 @@ export function TodayBookingsModal({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `bookings-${selectedDate}.csv`;
+    a.download = `bookings-${selectedDate}-${currentUser?.name || 'all'}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -116,13 +376,18 @@ export function TodayBookingsModal({
               }} onClick={goToPrevDay} className="p-2 rounded-lg hover:bg-white/20 transition-colors" data-unique-id="0571c874-c8a3-42a7-a262-46696d21aedb" data-file-name="components/today-bookings-modal.tsx">
                     <ChevronLeft className="w-5 h-5" />
                   </motion.button>
-                  <motion.button whileHover={{
-                scale: 1.05
-              }} whileTap={{
-                scale: 0.95
-              }} onClick={goToToday} className="px-4 py-2 rounded-lg hover:bg-white/20 transition-colors font-medium" data-unique-id="e474dacf-884d-4822-bc85-0a3df21d8ede" data-file-name="components/today-bookings-modal.tsx"><span className="editable-text" data-unique-id="60c25091-6ba0-4325-a88d-c3571ab8c06d" data-file-name="components/today-bookings-modal.tsx">
-                    Today
-                  </span></motion.button>
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }} 
+                    whileTap={{ scale: 0.95 }} 
+                    onClick={goToToday} 
+                    className="px-4 py-2 rounded-lg hover:bg-white/20 transition-colors font-medium" 
+                    data-unique-id="e474dacf-884d-4822-bc85-0a3df21d8ede" 
+                    data-file-name="components/today-bookings-modal.tsx"
+                  >
+                    <span className="editable-text" data-unique-id="60c25091-6ba0-4325-a88d-c3571ab8c06d" data-file-name="components/today-bookings-modal.tsx">
+                      {format(new Date(selectedDate), 'MMM d')}
+                    </span>
+                  </motion.button>
                   <motion.button whileHover={{
                 scale: 1.05
               }} whileTap={{
@@ -130,10 +395,35 @@ export function TodayBookingsModal({
               }} onClick={goToNextDay} className="p-2 rounded-lg hover:bg-white/20 transition-colors" data-unique-id="2b8c7eb5-19cd-45ee-8865-043baab57470" data-file-name="components/today-bookings-modal.tsx">
                     <ChevronRight className="w-5 h-5" />
                   </motion.button>
+                  
+                  {/* Calendar Picker Button */}
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }} 
+                    whileTap={{ scale: 0.95 }} 
+                    onClick={() => setShowCalendarPicker(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    title="Select date"
+                  >
+                    <CalendarIcon className="w-4 h-4" />
+                    <span>Calendar</span>
+                  </motion.button>
                 </div>
-                <div className="text-lg font-semibold" data-unique-id="724b8953-c9e2-43a3-80a3-be299e0c3448" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">
-                  {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+                
+                <div className="text-center">
+                  <div className="text-lg font-semibold" data-unique-id="724b8953-c9e2-43a3-80a3-be299e0c3448" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">
+                    {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+                  </div>
+                  {currentUser && (
+                    <div className="text-sm text-muted-foreground">
+                      {currentUser.role === 'sales' && `Showing bookings created by: ${currentUser.name}`}
+                      {currentUser.role === 'cis' && `Showing bookings assigned to: ${currentUser.name}`}
+                      {currentUser.role === 'admin' && `Showing all bookings (Admin view)`}
+                      {!currentUser.role && `Showing bookings for: ${currentUser.name}`}
+                    </div>
+                  )}
                 </div>
+                
+                
                 {activeTab === 'sheet' && <motion.button whileHover={{
               scale: 1.05
             }} whileTap={{
@@ -150,6 +440,14 @@ export function TodayBookingsModal({
               </div>
             </div>
           </motion.div>
+          
+          {/* Calendar Picker */}
+          <CalendarPicker
+            selectedDate={selectedDate}
+            onDateSelect={setSelectedDate}
+            isOpen={showCalendarPicker}
+            onClose={() => setShowCalendarPicker(false)}
+          />
         </>}
     </AnimatePresence>;
 }
@@ -158,6 +456,7 @@ function CalendarView({
 }: {
   bookings: any[];
 }) {
+  const { currentUser } = useAppStore();
   const timeSlots = SLOT_WINDOWS;
   return <div className="space-y-6" data-unique-id="6a79ab2b-d3aa-438f-8abd-8c51b550840d" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">
       {timeSlots.map((slot, index) => {
@@ -179,7 +478,15 @@ function CalendarView({
               scale: 1.02
             }} className="glass p-4 rounded-lg border border-glass-border" data-unique-id="94dafe96-7dec-4c17-8a96-7b251cf9522d" data-file-name="components/today-bookings-modal.tsx">
                       <div className="flex items-center justify-between mb-2" data-unique-id="fcb5ea01-dd1e-45c2-8266-df12263da5d7" data-file-name="components/today-bookings-modal.tsx">
-                        <span className="font-medium" data-unique-id="5bb274c3-1d1d-43db-ad41-aeb34a74c44e" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">{cis?.name}</span>
+                        {/* Show different info based on user role */}
+                        <span className="font-medium" data-unique-id="5bb274c3-1d1d-43db-ad41-aeb34a74c44e" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">
+                          {currentUser?.role === 'sales' 
+                            ? `Assigned to: ${cis?.name}`  // Sales: Show which CIS is handling
+                            : currentUser?.role === 'cis'
+                            ? booking.createdBy || 'Unknown'  // CIS: Show who booked it
+                            : `${cis?.name}`  // Admin: Show CIS name
+                          }
+                        </span>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${booking.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : booking.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`} data-unique-id="60a5cfb2-2f08-4c21-ba7f-4b2023120060" data-file-name="components/today-bookings-modal.tsx" data-dynamic-text="true">
                           {booking.status}
                         </span>

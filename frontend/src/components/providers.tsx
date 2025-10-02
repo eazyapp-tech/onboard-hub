@@ -1,14 +1,12 @@
 'use client';
 
-// import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider } from '@clerk/nextjs';
 
 interface ProvidersProps {
   children: React.ReactNode;
 }
 
 export function Providers({ children }: ProvidersProps) {
-  // Temporarily commenting out Clerk authentication
-  /*
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   
   console.log('Clerk Provider Debug:', {
@@ -61,8 +59,4 @@ export function Providers({ children }: ProvidersProps) {
       {children}
     </ClerkProvider>
   );
-  */
-
-  // Simple provider without authentication
-  return <>{children}</>;
 }

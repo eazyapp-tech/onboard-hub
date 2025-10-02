@@ -39,11 +39,12 @@ export function BookingForm({
     subscriptionStartDate: format(new Date(), 'yyyy-MM-dd'),
     monthsBilled: 1,
     freeMonths: 0,
-    bookingLocation: 'north_delhi' as const,
+    bookingLocation: 'north_delhi' as ('north_delhi' | 'south_delhi' | 'noida' | 'gurgaon' | 'others'),
+    customCity: '', // New field for custom city when "Others" is selected
     mode: 'physical' as 'physical' | 'virtual',
     date: format(addDays(new Date(), 1), 'yyyy-MM-dd'),
     slotWindow: '' as string,
-    cisId: '' as 'megha' | 'aditya' | 'manish' | ''
+    cisId: '' as 'manish-arora' | 'harsh-tulsyan' | 'vikash-jarwal' | 'jyoti-kalra' | 'megha-verma' | 'aditya-shrivastav' | ''
   });
   const [selectedAddons, setSelectedAddons] = useState<Array<{
     type: string;
@@ -63,24 +64,26 @@ export function BookingForm({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   
-  // Build candidate slots by mode.
-  // - physical: 3h blocks [10-13], [14-17], plus 1h [18-19]
-  // - virtual:  2h blocks [10-12], [12-14], [15-17], plus 1h [18-19]
-  function getCandidateSlotsForMode(mode: 'physical' | 'virtual') {
-    if (mode === 'virtual') {
+  // Build candidate slots based on CIS user.
+  // - Manish and Vikas: 3h blocks [10-13], [14-17], plus 1h [18-19]
+  // - All others: 2h blocks [10-12], [13-14], [15-17], plus 1h [18-19]
+  function getCandidateSlotsForCis(cisId: string, mode: 'physical' | 'virtual') {
+    if (cisId === 'manish-arora' || cisId === 'vikash-jarwal') {
+      // 3-hour slots for Manish and Vikas
+      return [
+        { value: '10_13', label: '10:00 AM – 1:00 PM', startHour: 10, endHour: 13 },
+        { value: '14_17', label: '2:00 PM – 5:00 PM', startHour: 14, endHour: 17 },
+        { value: '18_19', label: '6:00 PM – 7:00 PM', startHour: 18, endHour: 19 },
+      ];
+    } else {
+      // 2-hour slots for others (Harsh, Jyoti, Megha, Aditya, etc.)
       return [
         { value: '10_12', label: '10:00 AM – 12:00 PM', startHour: 10, endHour: 12 },
-        { value: '12_14', label: '12:00 PM – 2:00 PM', startHour: 12, endHour: 14 },
+        { value: '13_14', label: '1:00 PM – 2:00 PM', startHour: 13, endHour: 14 },
         { value: '15_17', label: '3:00 PM – 5:00 PM', startHour: 15, endHour: 17 },
         { value: '18_19', label: '6:00 PM – 7:00 PM', startHour: 18, endHour: 19 },
       ];
     }
-    // physical
-    return [
-      { value: '10_13', label: '10:00 AM – 1:00 PM', startHour: 10, endHour: 13 },
-      { value: '14_17', label: '2:00 PM – 5:00 PM', startHour: 14, endHour: 17 },
-      { value: '18_19', label: '6:00 PM – 7:00 PM', startHour: 18, endHour: 19 },
-    ];
   }
 
   // Check if two time ranges overlap (Date objects)
@@ -99,9 +102,9 @@ export function BookingForm({
 
   // --- helper: build payload for /api/onboarding (Deals sheet) ---
   const buildOnboardingPayloadFromBookingForm = () => {
-    const locLabel =
-      LOCATION_OPTIONS.find(l => l.value === formData.bookingLocation)?.label ||
-      formData.bookingLocation;
+    const locLabel = formData.bookingLocation === 'others' 
+      ? formData.customCity || 'Others'
+      : LOCATION_OPTIONS.find(l => l.value === formData.bookingLocation)?.label || formData.bookingLocation;
 
     // turn selected add-ons into a readable string (optional)
     const addonsSummary = selectedAddons.length
@@ -113,6 +116,9 @@ export function BookingForm({
       switch (slotWindow) {
         case '10_13': return '10 AM - 1 PM';
         case '14_17': return '2 PM - 5 PM';
+        case '10_12': return '10 AM - 12 PM';
+        case '13_14': return '1 PM - 2 PM';
+        case '15_17': return '3 PM - 5 PM';
         case '18_19': return '6 PM - 7 PM';
         default: return slotWindow;
       }
@@ -166,21 +172,74 @@ export function BookingForm({
   };
   
   useEffect(() => {
+    let availableCisUsers: any[];
+    
+    // Check if location is one of the specific cities
+    const specificCities = ['north_delhi', 'south_delhi', 'noida', 'gurgaon'];
+    
+    console.log('[CIS FILTERING] Current selection:', {
+      mode: formData.mode,
+      location: formData.bookingLocation,
+      specificCities: specificCities.includes(formData.bookingLocation)
+    });
+    
     if (formData.mode === 'virtual') {
-      const opts = [
-        { label: 'Megha (megha@eazyapp.tech)', email: 'megha@eazyapp.tech' },
-      ];
-      setCisOptions(opts);
-      setSelectedCisEmail(opts[0].email);
+      // Virtual mode
+      if (specificCities.includes(formData.bookingLocation)) {
+        // Virtual for specific cities: Megha + Manish + Jyoti + Harsh
+        availableCisUsers = Array.from(CIS_USERS).filter(cis => 
+          cis.id === 'megha-verma' || 
+          cis.id === 'manish-arora' || 
+          cis.id === 'jyoti-kalra' ||
+          cis.id === 'harsh-tulsyan'
+        );
+        console.log('[CIS FILTERING] Virtual + Specific cities: Selecting Megha + Manish + Jyoti + Harsh');
+      } else {
+        // Virtual for Others: Only Harsh
+        availableCisUsers = Array.from(CIS_USERS).filter(cis => 
+          cis.id === 'harsh-tulsyan'
+        );
+        console.log('[CIS FILTERING] Virtual + Others: Selecting only Harsh');
+      }
     } else {
-      const opts = [
-        { label: 'Aditya (aditya@eazyapp.tech)', email: 'aditya@eazyapp.tech' },
-        { label: 'Manish Arora (manish.arora@eazyapp.tech)', email: 'manish.arora@eazyapp.tech' },
-      ];
-      setCisOptions(opts);
-      setSelectedCisEmail(opts[0].email);
+      // Physical mode
+      if (specificCities.includes(formData.bookingLocation)) {
+        // Physical for specific cities: Manish + Vikash
+        availableCisUsers = Array.from(CIS_USERS).filter(cis => 
+          cis.id === 'manish-arora' || 
+          cis.id === 'vikash-jarwal'
+        );
+        console.log('[CIS FILTERING] Physical + Specific cities: Selecting Manish + Vikash');
+      } else {
+        // Physical for Others: Manish + Vikash + Harsh
+        availableCisUsers = Array.from(CIS_USERS).filter(cis => 
+          cis.id === 'manish-arora' || 
+          cis.id === 'vikash-jarwal' || 
+          cis.id === 'harsh-tulsyan'
+        );
+        console.log('[CIS FILTERING] Physical + Others: Selecting Manish + Vikash + Harsh');
+      }
     }
-  }, [formData.mode]);
+    
+    const opts = availableCisUsers.map(cis => ({
+      label: `${cis.name} (${cis.email})`,
+      email: cis.email
+    }));
+    
+    console.log('[CIS FILTERING] Available CIS users:', availableCisUsers.map(cis => cis.name));
+    console.log('[CIS FILTERING] Options being set:', opts);
+    
+    setCisOptions(opts);
+    if (opts.length > 0) {
+      setSelectedCisEmail(opts[0].email);
+      // Update the cisId in form data to match the first available option
+      const firstCisUser = CIS_USERS.find(cis => cis.email === opts[0].email);
+      if (firstCisUser) {
+        setFormData(prev => ({ ...prev, cisId: firstCisUser.id }));
+        console.log('[CIS FILTERING] Setting default CIS:', firstCisUser.name);
+      }
+    }
+  }, [formData.mode, formData.bookingLocation]);
 
   async function loadSlots() {
     if (!selectedCisEmail || !formData.date) return;
@@ -236,16 +295,19 @@ export function BookingForm({
 
       // need a CIS email to query; if none, bail early
       const email = cisUser?.email;
-      if (!email) {
+      if (!email || !formData.cisId) {
         setLoadingSlots(false);
         return;
       }
 
+      // Get candidate slots for this CIS
+      const candidateSlots = getCandidateSlotsForCis(formData.cisId, formData.mode);
+      
       // 1) get busy from backend
       try {
-        const url = `/api/freebusy?email=${encodeURIComponent(email)}&date=${encodeURIComponent(
+        const url = `${API_BASE_URL}/api/freebusy?email=${encodeURIComponent(email)}&date=${encodeURIComponent(
           formData.date
-        )}&mode=${encodeURIComponent(formData.mode)}`;
+        )}&mode=${encodeURIComponent(formData.mode)}&cisId=${encodeURIComponent(formData.cisId)}`;
 
         const res = await fetch(url);
         const json = await res.json();
@@ -257,24 +319,25 @@ export function BookingForm({
           return;
         }
 
-        const busyRanges = parseBusy(json.data?.busy || []);
+        // Backend returns busy periods, we need to compute available slots
+        const busyPeriods = parseBusy(json.data || []);
+        const selectedDate = new Date(formData.date);
+        
+        // Filter candidate slots to find available ones
+        const available = candidateSlots.filter(slot => {
+          const slotStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), slot.startHour, 0, 0);
+          const slotEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), slot.endHour, 0, 0);
+          
+          // Check if this slot overlaps with any busy period
+          return !busyPeriods.some(busy => 
+            rangesOverlap(slotStart, slotEnd, busy.start, busy.end)
+          );
+        }).map(slot => ({
+          value: slot.value,
+          label: slot.label
+        }));
 
-        // 2) build candidate slots by mode
-        const candidates = getCandidateSlotsForMode(formData.mode);
-
-        // 3) turn each candidate into a range on the selected date and filter if overlapping busy
-        const [y, m, d] = formData.date.split('-').map(Number);
-
-        const available = candidates.filter(c => {
-          const start = new Date(y, m - 1, d, c.startHour, 0, 0);
-          const end = new Date(y, m - 1, d, c.endHour, 0, 0);
-
-          // if overlaps ANY busy -> remove
-          const conflicts = busyRanges.some(b => rangesOverlap(start, end, b.start, b.end));
-          return !conflicts;
-        });
-
-        setSlotOptions(available.map(a => ({ value: a.value, label: a.label })));
+        setSlotOptions(available);
 
         // optional: if the currently selected slot is no longer available, clear it
         if (formData.slotWindow && !available.find(a => a.value === formData.slotWindow)) {
@@ -311,9 +374,9 @@ export function BookingForm({
 
   // --- helper: build backend payload from your form data ---
   const buildBackendPayload = () => {
-    const locLabel =
-      LOCATION_OPTIONS.find(l => l.value === formData.bookingLocation)?.label ||
-      formData.bookingLocation;
+    const locLabel = formData.bookingLocation === 'others' 
+      ? formData.customCity || 'Others'
+      : LOCATION_OPTIONS.find(l => l.value === formData.bookingLocation)?.label || formData.bookingLocation;
 
     const { startISO, endISO } = getSlotTimesISO(formData.date, formData.slotWindow);
 
@@ -351,23 +414,35 @@ export function BookingForm({
       toast.error('Please select the onboarding person');
       return;
     }
+    if (formData.bookingLocation === 'others' && !formData.customCity.trim()) {
+      toast.error('Please enter a custom city name');
+      return;
+    }
   
-    const bookingId = crypto.randomUUID();
-    const bookingRef = generateBookingRef();
-    const booking = {
-      id: bookingId,
-      bookingRef,
-      ...formData,
-      slotWindow: formData.slotWindow, // now just a string like "10_12" or "14_17"
-      selectedSlotId,
-      cisId: formData.cisId,
-      status: 'scheduled' as const,
-      onboardingStatus: 'Onboarding Started' as const,
-      createdBy: 'current-user',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      totalAmount
-    };
+  const bookingId = crypto.randomUUID();
+  const bookingRef = generateBookingRef();
+  
+  // Debug logging for booking creation
+  console.log('[BOOKING-FORM] Creating booking with currentUser:', {
+    currentUser,
+    currentName: currentUser?.name,
+    createdByValue: currentUser?.name || 'current-user'
+  });
+  
+  const booking = {
+    id: bookingId,
+    bookingRef,
+    ...formData,
+    slotWindow: formData.slotWindow, // now just a string like "10_12" or "14_17"
+    selectedSlotId,
+    cisId: formData.cisId,
+    status: 'scheduled' as const,
+    onboardingStatus: 'Onboarding Started' as const,
+    createdBy: currentUser?.name || 'current-user',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    totalAmount
+  };
   
     // 1) your existing local state writes (kept exactly as-is)
     console.log('Adding booking to store:', booking);
@@ -671,10 +746,31 @@ try {
                   {LOCATION_OPTIONS.map(location => <label key={location.value} className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors" data-unique-id="7874c851-f4d5-4dac-b73f-cfa848a7ce01" data-file-name="components/booking-form.tsx">
                       <input type="radio" name="location" value={location.value} checked={formData.bookingLocation === location.value} onChange={e => setFormData({
                     ...formData,
-                    bookingLocation: e.target.value as any
+                    bookingLocation: e.target.value as any,
+                    customCity: '' // Reset custom city when changing location
                   })} className="w-4 h-4 text-blue-600" data-unique-id="a8101276-b83c-4254-ad6d-58ab498aa764" data-file-name="components/booking-form.tsx" />
                       <span data-unique-id="778f85f0-c50e-44f4-a580-9f3d9786fea7" data-file-name="components/booking-form.tsx" data-dynamic-text="true">{location.label}</span>
                     </label>)}
+                  
+                  {/* Custom City Input - only show when "Others" is selected */}
+                  {formData.bookingLocation === 'others' && (
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium mb-2">
+                        Custom City *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.customCity}
+                        onChange={e => setFormData({
+                          ...formData,
+                          customCity: e.target.value
+                        })}
+                        placeholder="Enter city name"
+                        className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
               <div data-unique-id="e007c9c5-e14d-4617-9046-c1cb81c20b72" data-file-name="components/booking-form.tsx">
@@ -718,46 +814,27 @@ try {
             <div className="glass p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Select Onboarding Person</p>
 
-              {formData.mode === 'virtual' ? (
-                // virtual = only Megha
-                <label className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors">
-                  <input
-                    type="radio"
-                    name="cis"
-                    value="megha"
-                    checked={formData.cisId === 'megha'}
-                    onChange={(e) => setFormData({ ...formData, cisId: e.target.value as any })}
-                    className="w-4 h-4 text-blue-600"
-                  />
-                  <span>Megha (megha@eazyapp.tech)</span>
-                </label>
-              ) : (
-                // physical = Aditya or Manish
-                <div className="space-y-2">
-                  <label className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors">
+              <div className="space-y-2">
+                {cisOptions.map((cisOption) => {
+                  // Find the corresponding CIS user object
+                  const cis = CIS_USERS.find(cis => cis.email === cisOption.email);
+                  if (!cis) return null; // Skip if CIS user not found
+                  
+                  return (
+                  <label key={cis.id} className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors">
                     <input
                       type="radio"
                       name="cis"
-                      value="aditya"
-                      checked={formData.cisId === 'aditya'}
+                      value={cis.id}
+                      checked={formData.cisId === cis.id}
                       onChange={(e) => setFormData({ ...formData, cisId: e.target.value as any })}
                       className="w-4 h-4 text-blue-600"
                     />
-                    <span>Aditya (aditya@rentok.com)</span>
+                    <span>{cis.name} ({cis.email})</span>
                   </label>
-                  <label className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors">
-                    <input
-                      type="radio"
-                      name="cis"
-                      value="manish"
-                      checked={formData.cisId === 'manish'}
-                      onChange={(e) => setFormData({ ...formData, cisId: e.target.value as any })}
-                      className="w-4 h-4 text-blue-600"
-                    />
-                    <span>Manish Arora (manish.arora@eazyapp.tech)</span>
-                  </label>
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4" data-unique-id="0d187fde-6c22-49e7-999a-6d267159efa9" data-file-name="components/booking-form.tsx">

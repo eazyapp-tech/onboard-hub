@@ -94,10 +94,26 @@ export const useAppStore = create<AppState>()(
       },
 
       assignCis: (location, mode) => {
-        if (mode === 'virtual') return 'megha';
-        if ((location === 'south_delhi' || location === 'gurgaon') && mode === 'physical') return 'vikash';
-        if ((location === 'north_delhi' || location === 'noida') && mode === 'physical') return 'manish';
-        return 'harsh';
+        const specificCities = ['north_delhi', 'south_delhi', 'noida', 'gurgaon'];
+        
+        if (mode === 'virtual') {
+          if (specificCities.includes(location)) {
+            // Virtual for specific cities: Default to Harsh
+            return 'harsh-tulsyan';
+          } else {
+            // Virtual for Others: Only Harsh
+            return 'harsh-tulsyan';
+          }
+        } else {
+          // Physical mode
+          if (specificCities.includes(location)) {
+            // Physical for specific cities: Default to Manish
+            return 'manish-arora';
+          } else {
+            // Physical for Others: Default to Manish
+            return 'manish-arora';
+          }
+        }
       },
 
       getAvailableSlots: (cisId, date, location) => {
