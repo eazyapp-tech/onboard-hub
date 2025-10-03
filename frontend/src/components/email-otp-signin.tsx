@@ -59,6 +59,7 @@ export function EmailOTPSignIn() {
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         toast.success('Successfully signed in!');
+        // Redirect to post-auth for role selection
         router.push('/post-auth');
       } else {
         console.log('Additional steps required:', result);
