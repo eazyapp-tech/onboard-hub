@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-// import { useUser, useClerk } from '@clerk/nextjs';
+import { useUser, useClerk } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 
 export default function SSOCallback() {
-  // Temporarily commenting out Clerk authentication
-  /*
   const { isLoaded, isSignedIn, user } = useUser();
   const { loaded } = useClerk();
   const [hasRedirected, setHasRedirected] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     console.log('🔍 SSO Callback Debug:', { 
@@ -29,40 +29,24 @@ export default function SSOCallback() {
     // Now that Clerk is loaded, check authentication
     if (!hasRedirected) {
       if (isSignedIn === true && user?.id) {
-        console.log('🚀 Redirecting to start.rentok.com - User authenticated!');
+        console.log('🚀 Redirecting to post-auth - User authenticated!');
         setHasRedirected(true);
-        window.location.href = 'https://start.rentok.com';
+        router.push('/post-auth');
       } else if (isSignedIn === false) {
-        console.log('❌ No user authenticated, redirecting to home');
+        console.log('❌ No user authenticated, redirecting to sign-in');
         setHasRedirected(true);
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 500);
+        router.push('/sign-in');
       }
       // If isSignedIn is still undefined after loading, wait for next render
     }
-  }, [loaded, isLoaded, isSignedIn, user, hasRedirected]);
-  */
-
-  const [hasRedirected, setHasRedirected] = useState(false);
-
-  // Temporarily redirect directly to start.rentok.com
-  useEffect(() => {
-    if (!hasRedirected) {
-      console.log('🚀 Redirecting to start.rentok.com');
-      setHasRedirected(true);
-      window.location.href = 'https://start.rentok.com';
-    }
-  }, [hasRedirected]);
+  }, [loaded, isLoaded, isSignedIn, user, hasRedirected, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">Completing sign in...</p>
-        <p className="text-xs text-gray-400 mt-2">
-          Redirecting to start.rentok.com...
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="text-center p-8 bg-white rounded-lg shadow-lg">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Completing sign in...</h2>
+        <p className="text-gray-600">Please wait</p>
       </div>
     </div>
   );
