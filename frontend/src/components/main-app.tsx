@@ -9,6 +9,7 @@ import { Header } from '@/components/header';
 import { BookingForm } from '@/components/booking-form';
 import { CisDashboard } from '@/components/cis-dashboard';
 import { TodayBookingsModal } from '@/components/today-bookings-modal';
+import { useUser } from '@clerk/nextjs';
 
 const SALES_USERS = [
   { id: 'abhishek-wadia', name: 'Abhishek Wadia', email: 'abhishek.wadia@eazyapp.tech' },
@@ -86,6 +87,7 @@ export function MainApp() {
     currentUser,
     setCurrentUser
   } = useAppStore();
+  const { user } = useUser();
 
   // Prevent hydration mismatch by ensuring component is mounted
   useEffect(() => {
@@ -201,6 +203,35 @@ export function MainApp() {
 
   return (
     <div className="min-h-screen overflow-x-hidden">
+      {/* Welcome Banner - Show only on role selection */}
+      {appState === 'role-selection' && user && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 shadow-lg"
+        >
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-bold">
+                Welcome, {user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}! 👋
+              </h2>
+              <p className="text-blue-100 text-sm sm:text-base">
+                You're successfully signed in. Select your role to continue.
+              </p>
+            </div>
+            <button
+              onClick={() => window.location.href = '/sign-out'}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors text-sm sm:text-base flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="hidden sm:inline">Logout</span>
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {appState === 'role-selection' && (
         <RoleSelector onRoleSelect={handleRoleSelect} />
       )}
