@@ -25,5 +25,4 @@ Thumbs.db
 *.log
 
 # Google Service Account Keys
-*.json
-propane-passkey-*
+propane-passkey-*.json
