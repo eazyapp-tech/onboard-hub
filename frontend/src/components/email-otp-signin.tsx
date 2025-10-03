@@ -13,6 +13,12 @@ export function EmailOTPSignIn() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Check if user is already signed in
+  if (isLoaded && signIn?.status === 'complete') {
+    router.push('/post-auth');
+    return null;
+  }
+
   // Send OTP to email
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,14 +27,14 @@ export function EmailOTPSignIn() {
     setLoading(true);
     try {
       // Start the sign-in process with email
-      await signIn.create({
+      const result = await signIn.create({
         identifier: email,
       });
 
       // Send the email code
-      await signIn.prepareFirstFactor({
+      const prepareResult = await signIn.prepareFirstFactor({
         strategy: 'email_code',
-        emailAddressId: signIn.supportedFirstFactors.find(
+        emailAddressId: result.supportedFirstFactors.find(
           (factor) => factor.strategy === 'email_code'
         )?.emailAddressId,
       });
@@ -37,7 +43,14 @@ export function EmailOTPSignIn() {
       setStep('code');
     } catch (err: any) {
       console.error('Error sending code:', err);
-      toast.error(err.errors?.[0]?.message || 'Failed to send OTP');
+      
+      // Handle session already exists error
+      if (err.errors?.[0]?.code === 'session_exists') {
+        toast.error('You are already signed in. Redirecting...');
+        router.push('/post-auth');
+      } else {
+        toast.error(err.errors?.[0]?.message || 'Failed to send OTP');
+      }
     } finally {
       setLoading(false);
     }
