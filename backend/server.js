@@ -1787,6 +1787,19 @@ app.get('/api/freebusy', async (req, res, next) => {
           });
           return false;
         }
+        
+        // Only consider events on the requested date (not spanning multiple days)
+        const startDate = b.start.toISOString().split('T')[0];
+        const endDate = b.end.toISOString().split('T')[0];
+        if (startDate !== dateStr && endDate !== dateStr) {
+          console.log('[FREEBUSY] Filtering out event not on requested date:', {
+            start: b.start.toISOString(),
+            end: b.end.toISOString(),
+            requestedDate: dateStr
+          });
+          return false;
+        }
+        
         return true;
       });
 
