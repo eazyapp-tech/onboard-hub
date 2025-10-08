@@ -206,13 +206,23 @@ export const useAppStore = create<AppState>()(
                 cisId: item.cisId,
                 slotWindow: item.slotWindow || '10_13',
                 date: item.date || (item.moveInDate ? new Date(item.moveInDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
-                status: 'scheduled' as const,
+                status: item.status || 'scheduled',
                 onboardingStatus: item.status || 'Onboarding Started',
                 createdBy: item.createdBy || 'System',
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
                 totalAmount: item.totalAmount || 0,
-                notes: item.notes
+                notes: item.notes,
+                // Completion data
+                actualOnboardingDate: item.actualOnboardingDate,
+                actualOnboardingTime: item.actualOnboardingTime,
+                onboardingAddons: item.onboardingAddons || [],
+                attachmentUrls: item.attachmentUrls || { checklist: [], reviews: [] },
+                // Cancellation data
+                cancellationReason: item.cancellationReason,
+                cancellationRemarks: item.cancellationRemarks,
+                cancelledAt: item.cancelledAt,
+                cancelledBy: item.cancelledBy
               }));
               set({ bookings: transformedBookings });
               console.log('Loaded onboardings from backend:', transformedBookings.length);

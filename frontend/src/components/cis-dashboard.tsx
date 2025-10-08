@@ -1165,6 +1165,60 @@ function ReopenOnboardingModal({
   const [actualTime, setActualTime] = useState(booking.actualOnboardingTime || '');
   const [notes, setNotes] = useState(booking.notes || '');
   const [addons, setAddons] = useState(booking.onboardingAddons || []);
+  const [slotOptions, setSlotOptions] = useState<{ value: string; label: string }[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Fetch available slots when date changes
+  useEffect(() => {
+    async function fetchSlots() {
+      if (!newDate || !booking.cisId) return;
+      
+      setLoadingSlots(true);
+      try {
+        // Find CIS user email
+        const cisUser = CIS_USERS.find(cis => cis.id === booking.cisId);
+        if (!cisUser) {
+          console.error('CIS user not found:', booking.cisId);
+          setLoadingSlots(false);
+          return;
+        }
+
+        const url = `${API_BASE_URL}/api/freebusy?email=${encodeURIComponent(cisUser.email)}&date=${encodeURIComponent(newDate)}&mode=${encodeURIComponent(booking.mode || 'physical')}&cisId=${encodeURIComponent(booking.cisId)}`;
+        
+        const res = await fetch(url);
+        const json = await res.json();
+
+        if (res.ok && json?.ok) {
+          const availableFromBackend = json.data || [];
+          
+          // Map backend slots to our format
+          const available = availableFromBackend.map((slot: any) => {
+            const startTime = new Date(slot.startTime);
+            const endTime = new Date(slot.endTime);
+            const startHour = startTime.getHours();
+            const endHour = endTime.getHours();
+            
+            return {
+              value: `${startHour}_${endHour}`,
+              label: slot.label
+            };
+          });
+
+          setSlotOptions(available);
+        } else {
+          console.error('freebusy error:', json);
+          toast.error('Could not load available slots');
+        }
+      } catch (e) {
+        console.error('freebusy fetch fail:', e);
+        toast.error('Could not load available slots');
+      } finally {
+        setLoadingSlots(false);
+      }
+    }
+
+    fetchSlots();
+  }, [newDate, booking.cisId, booking.mode]);
 
   const handleSubmit = () => {
     if (!newDate || !newSlotWindow) {
@@ -1250,11 +1304,21 @@ function ReopenOnboardingModal({
                 <select
                   value={newSlotWindow}
                   onChange={(e) => setNewSlotWindow(e.target.value)}
-                  className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={loadingSlots || slotOptions.length === 0}
+                  className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {SLOT_WINDOWS.map(slot => (
-                    <option key={slot.value} value={slot.value}>{slot.label}</option>
-                  ))}
+                  {loadingSlots ? (
+                    <option value="">Loading available slots...</option>
+                  ) : slotOptions.length === 0 ? (
+                    <option value="">No slots available for this date</option>
+                  ) : (
+                    <>
+                      <option value="">Select a time slot</option>
+                      {slotOptions.map(slot => (
+                        <option key={slot.value} value={slot.value}>{slot.label}</option>
+                      ))}
+                    </>
+                  )}
                 </select>
               </div>
             </div>

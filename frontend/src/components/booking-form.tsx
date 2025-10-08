@@ -196,11 +196,13 @@ export function BookingForm({
         );
         console.log('[CIS FILTERING] Virtual + Specific cities: Selecting Megha + Manish + Jyoti + Harsh');
       } else {
-        // Virtual for Others: Only Harsh
+        // Virtual for Others: Harsh + Jyoti + Megha
         availableCisUsers = Array.from(CIS_USERS).filter(cis => 
-          cis.id === 'harsh-tulsyan'
+          cis.id === 'harsh-tulsyan' ||
+          cis.id === 'jyoti-kalra' ||
+          cis.id === 'megha-verma'
         );
-        console.log('[CIS FILTERING] Virtual + Others: Selecting only Harsh');
+        console.log('[CIS FILTERING] Virtual + Others: Selecting Harsh + Jyoti + Megha');
       }
     } else {
       // Physical mode

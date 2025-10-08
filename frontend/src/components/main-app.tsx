@@ -17,7 +17,7 @@ const SALES_USERS = [
   { id: 'prashant', name: 'Prashant', email: 'prashant@eazyapp.tech' },
   { id: 'somesh-g', name: 'Somesh G', email: 'somesh.g@eazyapp.tech' },
   { id: 'aditis', name: 'Aditis', email: 'aditis@eazyapp.tech' },
-  { id: 'tabitha-d', name: 'Tabitha D', email: 'tabitha.d@eazyapp.tech' },
+  { id: 'shraddha-shrivastav', name: 'Shraddha Shrivastav', email: 'Shradda.s@eazyapp.tech' },
   { id: 'amit', name: 'Amit', email: 'amit@eazyapp.tech' },
   { id: 'bharat-k', name: 'Bharat K', email: 'bharat.k@eazyapp.tech' },
   { id: 'kamalkant-upadhyay', name: 'Kamalkant Upadhyay', email: 'kamalkant.u@eazyapp.tech' },
@@ -207,137 +207,6 @@ export function MainApp() {
       {appState === 'role-selection' && (
         <div>
           <RoleSelector onRoleSelect={handleRoleSelect} />
-          
-          {/* Debug and Migration Section */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            transition={{ delay: 0.3 }}
-            className="max-w-md mx-auto mt-8 p-6 bg-blue-50 border border-blue-200 rounded-lg"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <h3 className="text-lg font-semibold text-blue-800">Data Management</h3>
-            </div>
-            
-            <div className="space-y-3">
-              <p className="text-blue-700 text-sm">
-                Local bookings: <span className="font-semibold">{bookings.length}</span>
-              </p>
-              
-              {bookings.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-blue-700 text-sm">
-                    Found {bookings.length} existing onboarding(s) in your browser.
-                  </p>
-                  <button
-                    onClick={async () => {
-                      await migrateLocalDataToBackend();
-                      alert('Data migration completed! All users can now see your onboardings.');
-                    }}
-                    className="w-full bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                  >
-                    Migrate {bookings.length} Onboarding(s) to Shared Database
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-blue-700 text-sm">
-                    No local bookings found. Create some test data to test the migration.
-                  </p>
-                  <button
-                    onClick={() => {
-                      // Create sample bookings for testing
-                      const sampleBookings = [
-                        {
-                          id: 'test-1',
-                          bookingRef: 'ONB-TEST-001',
-                          portfolioManager: 'Test Manager',
-                          ownerName: 'Test Owner 1',
-                          ownerPhone: '+91-9876543210',
-                          ownerEmail: 'test1@example.com',
-                          rentokId: 'RO-TEST-001',
-                          noOfProperties: 1,
-                          noOfBeds: 2,
-                          subscriptionType: 'Gold' as const,
-                          soldPricePerBed: 5000,
-                          subscriptionStartDate: '2025-01-15',
-                          monthsBilled: 6,
-                          freeMonths: 0,
-                          bookingLocation: 'north_delhi' as const,
-                          mode: 'physical' as const,
-                          bookingDate: new Date(),
-                          appointmentDate: new Date(),
-                          appointmentTime: '10:00 AM',
-                          status: 'scheduled' as const,
-                          onboardingStatus: 'Onboarding Started' as const,
-                          cisId: 'manish-arora',
-                          date: '2025-01-15',
-                          slotWindow: '10_13',
-                          createdBy: 'Test User',
-                          createdAt: new Date().toISOString(),
-                          updatedAt: new Date().toISOString(),
-                          totalAmount: 10000
-                        },
-                        {
-                          id: 'test-2',
-                          bookingRef: 'ONB-TEST-002',
-                          portfolioManager: 'Test Manager 2',
-                          ownerName: 'Test Owner 2',
-                          ownerPhone: '+91-9876543211',
-                          ownerEmail: 'test2@example.com',
-                          rentokId: 'RO-TEST-002',
-                          noOfProperties: 2,
-                          noOfBeds: 4,
-                          subscriptionType: 'Silver' as const,
-                          soldPricePerBed: 3000,
-                          subscriptionStartDate: '2025-01-16',
-                          monthsBilled: 8,
-                          freeMonths: 1,
-                          bookingLocation: 'south_delhi' as const,
-                          mode: 'virtual' as const,
-                          bookingDate: new Date(),
-                          appointmentDate: new Date(),
-                          appointmentTime: '2:00 PM',
-                          status: 'scheduled' as const,
-                          onboardingStatus: 'Onboarding Started' as const,
-                          cisId: 'harsh-tulsyan',
-                          date: '2025-01-16',
-                          slotWindow: '13_15',
-                          createdBy: 'Test User',
-                          createdAt: new Date().toISOString(),
-                          updatedAt: new Date().toISOString(),
-                          totalAmount: 20000
-                        }
-                      ];
-                      
-                      // Add to store
-                      sampleBookings.forEach(booking => {
-                        useAppStore.getState().addBooking(booking);
-                      });
-                      
-                      alert(`Created ${sampleBookings.length} test bookings. Refresh the page to see the migration button.`);
-                    }}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-                  >
-                    Create Test Data (2 Sample Bookings)
-                  </button>
-                </div>
-              )}
-              
-              <button
-                onClick={async () => {
-                  await loadBookingsFromBackend();
-                  alert('Data refreshed from backend!');
-                }}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-              >
-                Refresh from Backend
-              </button>
-            </div>
-          </motion.div>
         </div>
       )}
 
