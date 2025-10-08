@@ -1529,7 +1529,13 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
       
     } catch (sheetsError) {
       console.error('[COMPLETE-ONBOARDING] Sheets error:', sheetsError);
-      // Don't fail the request if sheets update fails
+      console.error('[COMPLETE-ONBOARDING] Sheets error details:', sheetsError.message, sheetsError.stack);
+      // Return error to frontend so user knows it failed
+      return res.status(500).json({ 
+        ok: false, 
+        error: 'Failed to save to Sheet2: ' + sheetsError.message,
+        details: sheetsError.toString()
+      });
     }
 
     // Also save completion data to MongoDB
@@ -1556,7 +1562,8 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
       console.log('[COMPLETE-ONBOARDING] Updated MongoDB with completion data for:', booking.id);
     } catch (mongoError) {
       console.error('[COMPLETE-ONBOARDING] MongoDB update error:', mongoError);
-      // Don't fail the request if MongoDB update fails
+      console.error('[COMPLETE-ONBOARDING] MongoDB error details:', mongoError.message, mongoError.stack);
+      // Log but don't fail if only MongoDB fails
     }
 
     res.json({ ok: true, message: 'Complete onboarding data saved successfully to Sheet2 and MongoDB' });
@@ -2176,7 +2183,12 @@ app.post('/api/cancel-onboarding', async (req, res, next) => {
       
     } catch (sheetsError) {
       console.error('[CANCEL-ONBOARDING] Sheets error:', sheetsError);
-      return res.status(500).json({ ok: false, error: 'Failed to save cancellation to sheets' });
+      console.error('[CANCEL-ONBOARDING] Sheets error details:', sheetsError.message, sheetsError.stack);
+      return res.status(500).json({ 
+        ok: false, 
+        error: 'Failed to save cancellation to Sheet2: ' + sheetsError.message,
+        details: sheetsError.toString()
+      });
     }
 
     // Also save cancellation data to MongoDB
@@ -2191,7 +2203,8 @@ app.post('/api/cancel-onboarding', async (req, res, next) => {
       console.log('[CANCEL-ONBOARDING] Updated MongoDB with cancellation data for:', booking.id);
     } catch (mongoError) {
       console.error('[CANCEL-ONBOARDING] MongoDB update error:', mongoError);
-      // Don't fail the request if MongoDB update fails
+      console.error('[CANCEL-ONBOARDING] MongoDB error details:', mongoError.message, mongoError.stack);
+      // Log but don't fail if only MongoDB fails
     }
 
     res.json({ ok: true, message: 'Cancellation data saved successfully to Sheet2 and MongoDB' });
