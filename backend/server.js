@@ -156,6 +156,23 @@ const OnboardingSchema = new mongoose.Schema(
       attachmentUrl: String
     }],
     attachmentUrl: String,
+    // Completion data
+    actualOnboardingDate: String,
+    actualOnboardingTime: String,
+    onboardingAddons: [{
+      name: String,
+      quantity: Number,
+      unitPrice: Number
+    }],
+    attachmentUrls: {
+      checklist: [{ fileName: String, publicUrl: String }],
+      reviews: [{ fileName: String, publicUrl: String }]
+    },
+    // Cancellation data
+    cancellationReason: String,
+    cancellationRemarks: String,
+    cancelledAt: String,
+    cancelledBy: String,
   },
   { timestamps: true }
 );
@@ -1515,7 +1532,34 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
       // Don't fail the request if sheets update fails
     }
 
-    res.json({ ok: true, message: 'Complete onboarding data saved successfully to Sheet2' });
+    // Also save completion data to MongoDB
+    try {
+      const completionData = {
+        status: 'completed',
+        actualOnboardingDate: completedAt.split('T')[0], // Extract date
+        actualOnboardingTime: completedAt.split('T')[1]?.split('.')[0] || '', // Extract time
+        onboardingAddons: addons || [],
+        attachmentUrls: {
+          checklist: checklistFiles.filter(file => typeof file === 'object').map(file => ({
+            fileName: file.fileName,
+            publicUrl: file.publicUrl
+          })),
+          reviews: reviewsFiles.filter(file => typeof file === 'object').map(file => ({
+            fileName: file.fileName,
+            publicUrl: file.publicUrl
+          }))
+        },
+        notes: notes || booking.notes || ''
+      };
+
+      await Onboarding.findByIdAndUpdate(booking.id, completionData, { new: true });
+      console.log('[COMPLETE-ONBOARDING] Updated MongoDB with completion data for:', booking.id);
+    } catch (mongoError) {
+      console.error('[COMPLETE-ONBOARDING] MongoDB update error:', mongoError);
+      // Don't fail the request if MongoDB update fails
+    }
+
+    res.json({ ok: true, message: 'Complete onboarding data saved successfully to Sheet2 and MongoDB' });
   } catch (e) {
     console.error('POST /api/complete-onboarding error:', e);
     next(e);
@@ -2135,7 +2179,22 @@ app.post('/api/cancel-onboarding', async (req, res, next) => {
       return res.status(500).json({ ok: false, error: 'Failed to save cancellation to sheets' });
     }
 
-    res.json({ ok: true, message: 'Cancellation data saved successfully to Sheet2' });
+    // Also save cancellation data to MongoDB
+    try {
+      await Onboarding.findByIdAndUpdate(booking.id, {
+        status: 'cancelled',
+        cancellationReason,
+        cancellationRemarks: cancellationRemarks || '',
+        cancelledAt,
+        cancelledBy: cancelledBy || 'Unknown'
+      }, { new: true });
+      console.log('[CANCEL-ONBOARDING] Updated MongoDB with cancellation data for:', booking.id);
+    } catch (mongoError) {
+      console.error('[CANCEL-ONBOARDING] MongoDB update error:', mongoError);
+      // Don't fail the request if MongoDB update fails
+    }
+
+    res.json({ ok: true, message: 'Cancellation data saved successfully to Sheet2 and MongoDB' });
   } catch (e) {
     console.error('POST /api/cancel-onboarding error:', e);
     next(e);
