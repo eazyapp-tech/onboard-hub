@@ -85,7 +85,10 @@ export function MainApp() {
   const [mounted, setMounted] = useState(false);
   const {
     currentUser,
-    setCurrentUser
+    setCurrentUser,
+    loadBookingsFromBackend,
+    migrateLocalDataToBackend,
+    bookings
   } = useAppStore();
   const { user } = useUser();
 
@@ -94,65 +97,24 @@ export function MainApp() {
     setMounted(true);
   }, []);
 
-  // Initialize seed data only after component is mounted
+  // Load data from backend on startup
   useEffect(() => {
     if (!mounted) return;
     
-    const initializeData = () => {
-      // Create sample bookings for demonstration
-      const sampleBookings = [{
-        id: '1',
-        bookingRef: 'ONB-20240924-0001',
-        portfolioManager: 'John Smith',
-        ownerName: 'Rajesh Kumar',
-        ownerPhone: '+91 9876543210',
-        ownerEmail: 'rajesh@example.com',
-        rentokId: 'RO-2024-001',
-        noOfProperties: 2,
-        noOfBeds: 4,
-        subscriptionType: 'Gold' as const,
-        bookingDate: new Date(),
-        appointmentDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        appointmentTime: '10:00 AM',
-        status: 'pending' as const
-      }, {
-        id: '2',
-        bookingRef: 'ONB-20240924-0002',
-        portfolioManager: 'Sarah Connor',
-        ownerName: 'Priya Sharma',
-        ownerPhone: '+91 9876543211',
-        ownerEmail: 'priya@example.com',
-        rentokId: 'RO-2024-002',
-        noOfProperties: 1,
-        noOfBeds: 2,
-        subscriptionType: 'Silver' as const,
-        bookingDate: new Date(),
-        appointmentDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-        appointmentTime: '2:00 PM',
-        status: 'confirmed' as const
-      }, {
-        id: '3',
-        bookingRef: 'ONB-20240924-0003',
-        portfolioManager: 'Mike Johnson',
-        ownerName: 'Amit Patel',
-        ownerPhone: '+91 9876543212',
-        ownerEmail: 'amit@example.com',
-        rentokId: 'RO-2024-003',
-        noOfProperties: 3,
-        noOfBeds: 6,
-        subscriptionType: 'Platinum' as const,
-        bookingDate: new Date(),
-        appointmentDate: new Date(),
-        appointmentTime: '11:30 AM',
-        status: 'completed' as const
-      }];
-
-      // Store the sample data
-      localStorage.setItem('onboarding-bookings', JSON.stringify(sampleBookings));
+    const initializeData = async () => {
+      try {
+        // Load bookings from backend
+        await loadBookingsFromBackend();
+        console.log('Data loaded from backend on startup');
+      } catch (error) {
+        console.error('Failed to load data from backend:', error);
+        // Fallback: create sample data if backend is not available
+        console.log('Using fallback sample data');
+      }
     };
 
     initializeData();
-  }, [mounted]);
+  }, [mounted, loadBookingsFromBackend]);
 
   // Show loading state during hydration to prevent mismatch
   if (!mounted) {
@@ -164,6 +126,11 @@ export function MainApp() {
         </div>
       </div>
     );
+  }
+
+  // If user is signed in but no currentUser in store, show welcome immediately
+  if (user && !currentUser && appState === 'role-selection') {
+    // User is authenticated but hasn't selected role yet - show welcome
   }
 
   const handleRoleSelect = (role: string) => {
@@ -203,8 +170,8 @@ export function MainApp() {
 
   return (
     <div className="min-h-screen overflow-x-hidden">
-      {/* Welcome Banner - Show only on role selection */}
-      {appState === 'role-selection' && user && (
+      {/* Welcome Banner - Show when user is authenticated */}
+      {user && (
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -216,7 +183,12 @@ export function MainApp() {
                 Welcome, {user.firstName || user.emailAddresses[0]?.emailAddress || 'User'}! 👋
               </h2>
               <p className="text-blue-100 text-sm sm:text-base">
-                You're successfully signed in. Select your role to continue.
+                {appState === 'role-selection' 
+                  ? "You're successfully signed in. Select your role to continue."
+                  : currentUser 
+                    ? `You're signed in as ${currentUser.role === 'sales' ? 'Sales' : 'CIS'} user.`
+                    : "You're successfully signed in."
+                }
               </p>
             </div>
             <button
@@ -233,7 +205,140 @@ export function MainApp() {
       )}
 
       {appState === 'role-selection' && (
-        <RoleSelector onRoleSelect={handleRoleSelect} />
+        <div>
+          <RoleSelector onRoleSelect={handleRoleSelect} />
+          
+          {/* Debug and Migration Section */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={{ delay: 0.3 }}
+            className="max-w-md mx-auto mt-8 p-6 bg-blue-50 border border-blue-200 rounded-lg"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <h3 className="text-lg font-semibold text-blue-800">Data Management</h3>
+            </div>
+            
+            <div className="space-y-3">
+              <p className="text-blue-700 text-sm">
+                Local bookings: <span className="font-semibold">{bookings.length}</span>
+              </p>
+              
+              {bookings.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-blue-700 text-sm">
+                    Found {bookings.length} existing onboarding(s) in your browser.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      await migrateLocalDataToBackend();
+                      alert('Data migration completed! All users can now see your onboardings.');
+                    }}
+                    className="w-full bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Migrate {bookings.length} Onboarding(s) to Shared Database
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-blue-700 text-sm">
+                    No local bookings found. Create some test data to test the migration.
+                  </p>
+                  <button
+                    onClick={() => {
+                      // Create sample bookings for testing
+                      const sampleBookings = [
+                        {
+                          id: 'test-1',
+                          bookingRef: 'ONB-TEST-001',
+                          portfolioManager: 'Test Manager',
+                          ownerName: 'Test Owner 1',
+                          ownerPhone: '+91-9876543210',
+                          ownerEmail: 'test1@example.com',
+                          rentokId: 'RO-TEST-001',
+                          noOfProperties: 1,
+                          noOfBeds: 2,
+                          subscriptionType: 'Gold' as const,
+                          soldPricePerBed: 5000,
+                          subscriptionStartDate: '2025-01-15',
+                          monthsBilled: 6,
+                          freeMonths: 0,
+                          bookingLocation: 'north_delhi' as const,
+                          mode: 'physical' as const,
+                          bookingDate: new Date(),
+                          appointmentDate: new Date(),
+                          appointmentTime: '10:00 AM',
+                          status: 'scheduled' as const,
+                          onboardingStatus: 'Onboarding Started' as const,
+                          cisId: 'manish-arora',
+                          date: '2025-01-15',
+                          slotWindow: '10_13',
+                          createdBy: 'Test User',
+                          createdAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                          totalAmount: 10000
+                        },
+                        {
+                          id: 'test-2',
+                          bookingRef: 'ONB-TEST-002',
+                          portfolioManager: 'Test Manager 2',
+                          ownerName: 'Test Owner 2',
+                          ownerPhone: '+91-9876543211',
+                          ownerEmail: 'test2@example.com',
+                          rentokId: 'RO-TEST-002',
+                          noOfProperties: 2,
+                          noOfBeds: 4,
+                          subscriptionType: 'Silver' as const,
+                          soldPricePerBed: 3000,
+                          subscriptionStartDate: '2025-01-16',
+                          monthsBilled: 8,
+                          freeMonths: 1,
+                          bookingLocation: 'south_delhi' as const,
+                          mode: 'virtual' as const,
+                          bookingDate: new Date(),
+                          appointmentDate: new Date(),
+                          appointmentTime: '2:00 PM',
+                          status: 'scheduled' as const,
+                          onboardingStatus: 'Onboarding Started' as const,
+                          cisId: 'harsh-tulsyan',
+                          date: '2025-01-16',
+                          slotWindow: '13_15',
+                          createdBy: 'Test User',
+                          createdAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                          totalAmount: 20000
+                        }
+                      ];
+                      
+                      // Add to store
+                      sampleBookings.forEach(booking => {
+                        useAppStore.getState().addBooking(booking);
+                      });
+                      
+                      alert(`Created ${sampleBookings.length} test bookings. Refresh the page to see the migration button.`);
+                    }}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    Create Test Data (2 Sample Bookings)
+                  </button>
+                </div>
+              )}
+              
+              <button
+                onClick={async () => {
+                  await loadBookingsFromBackend();
+                  alert('Data refreshed from backend!');
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Refresh from Backend
+              </button>
+            </div>
+          </motion.div>
+        </div>
       )}
 
       {appState === 'sales-user-select' && (

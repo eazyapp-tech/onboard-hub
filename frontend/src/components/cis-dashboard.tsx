@@ -31,12 +31,14 @@ function OnboardingDetailPanel({
   onStatusChange,
   onCompleteOnboarding,
   onReopenOnboarding,
+  onCancelOnboarding,
 }: {
   item: any; // Booking type
   onClose: () => void;
   onStatusChange: (status: OnboardingStatus, note?: string) => void;
   onCompleteOnboarding: () => void;
   onReopenOnboarding: () => void;
+  onCancelOnboarding: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({
@@ -55,6 +57,7 @@ function OnboardingDetailPanel({
       case 'Onboarding Delayed': return 'bg-orange-100 text-orange-700';
       case 'Onboarding Done': return 'bg-green-100 text-green-700';
       case 'Reopened': return 'bg-blue-100 text-blue-700';
+      case 'Cancelled': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
     }
   };
@@ -419,6 +422,45 @@ function OnboardingDetailPanel({
               }
             </p>
           </div>
+
+          {/* Cancel Onboarding */}
+          {item.onboardingStatus !== 'Cancelled' && !item.actualOnboardingDate && (
+            <div className="glass p-3 rounded-lg bg-red-50/30">
+              <button
+                onClick={onCancelOnboarding}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 hover:shadow-lg transition-all font-medium"
+              >
+                <X className="w-5 h-5" />
+                Cancel Onboarding
+              </button>
+              <p className="text-xs text-muted-foreground mt-2 text-center">
+                Cancel this onboarding with reason and remarks
+              </p>
+            </div>
+          )}
+
+          {/* Show Cancellation Details if Cancelled */}
+          {item.onboardingStatus === 'Cancelled' && (
+            <div className="glass p-3 rounded-lg bg-red-50/30">
+              <p className="font-medium mb-2 text-red-700">✗ Onboarding Cancelled</p>
+              <div className="space-y-2 text-sm">
+                <p><b>Cancelled At:</b> {item.cancelledAt ? format(new Date(item.cancelledAt), 'MMM d, yyyy HH:mm') : 'N/A'}</p>
+                <p><b>Cancelled By:</b> {item.cancelledBy || 'Unknown'}</p>
+                {item.cancellationReason && (
+                  <div className="mt-2">
+                    <p className="font-medium">Reason:</p>
+                    <p className="text-muted-foreground bg-white/60 p-2 rounded mt-1">{item.cancellationReason}</p>
+                  </div>
+                )}
+                {item.cancellationRemarks && (
+                  <div className="mt-2">
+                    <p className="font-medium">Remarks:</p>
+                    <p className="text-muted-foreground bg-white/60 p-2 rounded mt-1">{item.cancellationRemarks}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -426,18 +468,24 @@ function OnboardingDetailPanel({
 }
 
 export function CisDashboard() {
-  const { currentUser, selectedOnboardingId, setSelectedOnboarding, getBookingsForCis, updateOnboardingStatus, bookings } = useAppStore();
+  const { currentUser, selectedOnboardingId, setSelectedOnboarding, getBookingsForCis, updateOnboardingStatus, bookings, refreshBookings } = useAppStore();
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [statusFilter, setStatusFilter] = useState<'scheduled' | 'completed' | 'all'>('scheduled');
+  const [statusFilter, setStatusFilter] = useState<'scheduled' | 'completed' | 'cancelled' | 'all'>('scheduled');
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [modeFilter, setModeFilter] = useState<string>('all');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [showReopenModal, setShowReopenModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   // Get bookings from local store
-  const myBookings = currentUser?.id ? getBookingsForCis(currentUser.id) : [];
+  // Filter bookings by CIS user ID for onboarding person dashboard
+  const myBookings = currentUser?.id ? 
+    bookings.filter(booking => {
+      // Show all bookings assigned to this CIS person
+      return booking.cisId === currentUser.id;
+    }) : [];
   
   // Debug logging
   console.log('CIS Dashboard Debug:', {
@@ -448,7 +496,7 @@ export function CisDashboard() {
   });
   
   const filteredBookings = myBookings.filter(booking => {
-    if (selectedDate && booking.date !== selectedDate) return false;
+    if (selectedDate && selectedDate !== '' && booking.date !== selectedDate) return false;
     if (statusFilter !== 'all' && booking.status !== statusFilter) return false;
     if (locationFilter !== 'all' && booking.bookingLocation !== locationFilter) return false;
     if (modeFilter !== 'all' && booking.mode !== modeFilter) return false;
@@ -457,14 +505,16 @@ export function CisDashboard() {
 
   const scheduledCount = filteredBookings.filter(b => b.status === 'scheduled').length;
   const completedCount = filteredBookings.filter(b => b.status === 'completed').length;
+  const cancelledCount = filteredBookings.filter(b => b.status === 'cancelled').length;
 
-  const selected = filteredBookings.find(b => b.id === selectedOnboardingId);
+  const selected = myBookings.find(b => b.id === selectedOnboardingId);
 
   const closePanel = () => {
     setSelectedOnboarding(null);
     setShowDetailPanel(true);
     setShowCompleteModal(false);
     setShowReopenModal(false);
+    setShowCancelModal(false);
   };
 
   const changeStatus = (status: OnboardingStatus, note?: string) => {
@@ -483,12 +533,147 @@ export function CisDashboard() {
   const handleBackToDetail = () => {
     setShowCompleteModal(false);
     setShowReopenModal(false);
+    setShowCancelModal(false);
     setShowDetailPanel(true);
   };
 
   const handleReopenOnboarding = () => {
     setShowDetailPanel(false);
     setShowReopenModal(true);
+  };
+
+  const handleCancelOnboarding = () => {
+    setShowDetailPanel(false);
+    setShowCancelModal(true);
+  };
+
+  const handleCancelSubmit = async (payload: { reason: string; remarks: string }) => {
+    console.log('[CIS-DASHBOARD] Cancelling onboarding with payload:', payload);
+    
+    if (!selected) return;
+    
+    const { updateBooking, currentUser } = useAppStore.getState();
+    
+    // Update booking with cancellation data
+    const cancellationData = {
+      status: 'cancelled' as const,
+      onboardingStatus: 'Cancelled' as const,
+      cancellationReason: payload.reason,
+      cancellationRemarks: payload.remarks,
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: currentUser?.name || 'Unknown',
+      updatedAt: new Date().toISOString()
+    };
+    
+    updateBooking(selected.id, cancellationData);
+    
+    // Update status history
+    updateOnboardingStatus(
+      selected.id, 
+      'Cancelled', 
+      `Cancelled: ${payload.reason}${payload.remarks ? ` - ${payload.remarks}` : ''}`
+    );
+    
+    // Save cancellation to Sheet2
+    try {
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      
+      const cancellationPayload = {
+        booking: {
+          bookingRef: selected.bookingRef,
+          portfolioManager: selected.portfolioManager,
+          ownerName: selected.ownerName,
+          phone: selected.ownerPhone,
+          email: selected.ownerEmail,
+          rentOkId: selected.rentokId,
+          propertiesCount: selected.noOfProperties,
+          bedsCount: selected.noOfBeds,
+          subscriptionType: selected.subscriptionType,
+          soldPricePerBed: selected.soldPricePerBed,
+          subscriptionStartDate: selected.subscriptionStartDate,
+          monthsBilled: selected.monthsBilled,
+          freeMonths: selected.freeMonths,
+          totalAmount: selected.totalAmount,
+          location: LOCATION_OPTIONS.find(l => l.value === selected.bookingLocation)?.label || selected.bookingLocation,
+          mode: selected.mode,
+          cisId: selected.cisId,
+          date: selected.date,
+          slotWindow: selected.slotWindow,
+          createdBy: selected.createdBy
+        },
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: payload.reason,
+        cancellationRemarks: payload.remarks,
+        cancelledBy: currentUser?.name || 'Unknown'
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/cancel-onboarding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cancellationPayload),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data?.ok) {
+        console.error('Cancel onboarding sheet sync failed:', data);
+        toast.error('Onboarding cancelled locally, but failed to save to Sheet2.');
+      } else {
+        toast.success('Onboarding cancelled and saved to Sheet2 ✅');
+      }
+    } catch (error) {
+      console.error('Cancel onboarding sheet sync error:', error);
+      toast.error('Onboarding cancelled locally, but Sheet2 sync failed.');
+    }
+    
+    // Delete calendar event if it exists
+    if (selected.calendarEventId) {
+      try {
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+        const response = await fetch(`${API_BASE_URL}/api/calendar-event/${selected.calendarEventId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cisEmail: CIS_USERS.find(cis => cis.id === selected.cisId)?.email }),
+        });
+        if (response.ok) {
+          console.log('Calendar event deleted successfully');
+        } else {
+          console.error('Failed to delete calendar event:', await response.text());
+        }
+      } catch (error) {
+        console.error('Failed to delete calendar event:', error);
+      }
+    }
+    
+    // Also delete/update the Booking record in MongoDB if it exists
+    if (selected.onboardingId) {
+      try {
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+        await fetch(`${API_BASE_URL}/api/onboarding/${selected.onboardingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'cancelled' }),
+        });
+        console.log('Onboarding record updated to cancelled in MongoDB');
+      } catch (error) {
+        console.error('Failed to update onboarding record:', error);
+      }
+    }
+    
+    // Close modals
+    setShowCancelModal(false);
+    setShowDetailPanel(false);
+    setSelectedOnboarding(null);
+    
+    // Refresh bookings data so other users see the freed slot
+    try {
+      await refreshBookings();
+      console.log('[CIS-DASHBOARD] Bookings refreshed after cancellation');
+    } catch (error) {
+      console.error('[CIS-DASHBOARD] Failed to refresh bookings after cancellation:', error);
+    }
+    
+    toast.success('Onboarding cancelled successfully. Slot is now available for rebooking.');
   };
 
   const handleReopenSubmit = async (payload: any) => {
@@ -564,6 +749,60 @@ export function CisDashboard() {
     // Update status to "Onboarding Done"
     updateOnboardingStatus(selected.id, 'Onboarding Done', `Onboarding completed on ${completionData.actualOnboardingDate} at ${completionData.actualOnboardingTime}`);
     
+    // Save complete onboarding data to Sheet2
+    try {
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+      
+      // Prepare complete onboarding payload for Sheet2
+      const completeOnboardingPayload = {
+        booking: {
+          bookingRef: selected.bookingRef,
+          portfolioManager: selected.portfolioManager,
+          ownerName: selected.ownerName,
+          phone: selected.ownerPhone,
+          email: selected.ownerEmail,
+          rentOkId: selected.rentokId,
+          propertiesCount: selected.noOfProperties,
+          bedsCount: selected.noOfBeds,
+          subscriptionType: selected.subscriptionType,
+          soldPricePerBed: selected.soldPricePerBed,
+          subscriptionStartDate: selected.subscriptionStartDate,
+          monthsBilled: selected.monthsBilled,
+          freeMonths: selected.freeMonths,
+          totalAmount: selected.totalAmount,
+          location: LOCATION_OPTIONS.find(l => l.value === selected.bookingLocation)?.label || selected.bookingLocation,
+          mode: selected.mode,
+          cisId: selected.cisId,
+          date: selected.date,
+          slotWindow: selected.slotWindow,
+          createdBy: selected.createdBy
+        },
+        completedAt: payload.completedAt,
+        attachments: payload.attachments,
+        addons: payload.addons,
+        notes: payload.notes,
+        draft: payload.draft
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/complete-onboarding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(completeOnboardingPayload),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || !data?.ok) {
+        console.error('Complete onboarding sheet sync failed:', data);
+        toast.error('Onboarding completed, but failed to save to Sheet2.');
+      } else {
+        toast.success('Onboarding completed and saved to Sheet2 ✅');
+      }
+    } catch (error) {
+      console.error('Complete onboarding sheet sync error:', error);
+      toast.error('Onboarding completed, but Sheet2 sync failed. Check console.');
+    }
+    
     // Close both modals
     setShowCompleteModal(false);
     setShowDetailPanel(false);
@@ -579,10 +818,26 @@ export function CisDashboard() {
         animate={{ opacity: 1, y: 0 }} 
         className="mb-6 sm:mb-8"
       >
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2">Onboarding Dashboard</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
-          Manage your onboarding sessions and track your progress.
-        </p>
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold mb-2">Onboarding Dashboard</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">
+              Manage your onboarding sessions and track your progress.
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              await refreshBookings();
+              setRefreshKey(prev => prev + 1);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh Data
+          </button>
+        </div>
       </motion.div>
 
       {/* Stats Cards */}
@@ -590,7 +845,7 @@ export function CisDashboard() {
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
         transition={{ delay: 0.1 }} 
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8"
       >
         <div className="glass rounded-xl p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
@@ -608,7 +863,15 @@ export function CisDashboard() {
           <p className="text-2xl sm:text-3xl font-bold text-green-600">{completedCount}</p>
         </div>
         
-        <div className="glass rounded-xl p-4 sm:p-6 sm:col-span-2 lg:col-span-1">
+        <div className="glass rounded-xl p-4 sm:p-6">
+          <div className="flex items-center gap-2 sm:gap-3 mb-2">
+            <X className="w-6 h-6 sm:w-8 sm:h-8 text-red-600" />
+            <h3 className="text-base sm:text-lg font-semibold">Cancelled</h3>
+          </div>
+          <p className="text-2xl sm:text-3xl font-bold text-red-600">{cancelledCount}</p>
+        </div>
+        
+        <div className="glass rounded-xl p-4 sm:p-6">
           <div className="flex items-center gap-2 sm:gap-3 mb-2">
             <User className="w-6 h-6 sm:w-8 sm:h-8 text-purple-600" />
             <h3 className="text-base sm:text-lg font-semibold">Total</h3>
@@ -650,6 +913,7 @@ export function CisDashboard() {
               <option value="all">All</option>
               <option value="scheduled">Scheduled</option>
               <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
           
@@ -697,6 +961,24 @@ export function CisDashboard() {
               Reset
             </motion.button>
           </div>
+        </div>
+        
+        {/* View All Onboardings Button */}
+        <div className="mt-4 pt-4 border-t border-glass-border">
+          <button
+            onClick={() => {
+              setSelectedDate('');
+              setStatusFilter('all');
+              setLocationFilter('all');
+              setModeFilter('all');
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+            View All Onboardings
+          </button>
         </div>
       </motion.div>
 
@@ -821,6 +1103,7 @@ export function CisDashboard() {
           onStatusChange={changeStatus}
           onCompleteOnboarding={handleCompleteOnboarding}
           onReopenOnboarding={handleReopenOnboarding}
+          onCancelOnboarding={handleCancelOnboarding}
         />
       )}
 
@@ -849,6 +1132,15 @@ export function CisDashboard() {
           onClose={handleBackToDetail}
           booking={selected}
           onSubmit={handleReopenSubmit}
+        />
+      )}
+
+      {selected && showCancelModal && (
+        <CancelOnboardingModal
+          isOpen={showCancelModal}
+          onClose={handleBackToDetail}
+          booking={selected}
+          onSubmit={handleCancelSubmit}
         />
       )}
     </div>
@@ -995,6 +1287,168 @@ function ReopenOnboardingModal({
             >
               <RotateCcw className="w-5 h-5" />
               Reopen & Reschedule
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// Cancel Onboarding Modal Component
+function CancelOnboardingModal({
+  isOpen,
+  onClose,
+  booking,
+  onSubmit
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  booking: any;
+  onSubmit: (payload: { reason: string; remarks: string }) => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [remarks, setRemarks] = useState('');
+
+  const cancellationReasons = [
+    'Owner requested cancellation',
+    'Property no longer available',
+    'Owner not responding',
+    'Budget constraints',
+    'Changed location preference',
+    'Duplicate booking',
+    'Other'
+  ];
+
+  const handleSubmit = () => {
+    if (!reason) {
+      toast.error('Please select a cancellation reason');
+      return;
+    }
+
+    onSubmit({
+      reason,
+      remarks
+    });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="glass rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2 text-red-700">
+              <X className="w-6 h-6" />
+              Cancel Onboarding
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Provide reason for cancelling onboarding for {booking.ownerName}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          {/* Current Booking Info */}
+          <div className="glass p-4 rounded-xl bg-blue-50/30">
+            <p className="font-semibold text-blue-700 mb-2">📋 Booking Details</p>
+            <div className="text-sm space-y-1">
+              <p><b>Owner:</b> {booking.ownerName}</p>
+              <p><b>Phone:</b> {booking.ownerPhone}</p>
+              <p><b>Email:</b> {booking.ownerEmail}</p>
+              <p><b>RentOk ID:</b> {booking.rentokId}</p>
+              <p><b>Date:</b> {format(new Date(booking.date), 'MMM d, yyyy')}</p>
+              <p><b>Slot:</b> {booking.slotWindow}</p>
+              <p><b>Location:</b> {LOCATION_OPTIONS.find(l => l.value === booking.bookingLocation)?.label || booking.bookingLocation}</p>
+            </div>
+          </div>
+
+          {/* Cancellation Reason */}
+          <div className="space-y-4">
+            <h3 className="font-semibold text-lg">Cancellation Reason <span className="text-red-500">*</span></h3>
+            
+            <div className="space-y-2">
+              {cancellationReasons.map((reasonOption) => (
+                <label key={reasonOption} className="flex items-center gap-3 p-3 glass rounded-lg cursor-pointer hover:bg-white/30 transition-colors">
+                  <input
+                    type="radio"
+                    name="reason"
+                    value={reasonOption}
+                    checked={reason === reasonOption}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-4 h-4 text-red-600"
+                  />
+                  <span>{reasonOption}</span>
+                </label>
+              ))}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Additional Remarks (Optional)
+              </label>
+              <textarea
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                rows={4}
+                placeholder="Add any additional details about the cancellation..."
+                className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+              />
+            </div>
+          </div>
+
+          {/* Warning */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex gap-3">
+              <svg className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-yellow-800">Warning</p>
+                <p className="text-xs text-yellow-700 mt-1">
+                  Cancelling this onboarding will:
+                </p>
+                <ul className="text-xs text-yellow-700 mt-1 list-disc list-inside">
+                  <li>Remove the calendar event for this slot</li>
+                  <li>Free up the time slot for rebooking</li>
+                  <li>Save the cancellation details to Sheet2</li>
+                  <li>Mark the onboarding as "Cancelled" in all views</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-glass-border">
+            <button
+              onClick={onClose}
+              className="px-6 py-3 rounded-lg border border-glass-border hover:bg-white/10 transition-colors"
+            >
+              Go Back
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={!reason}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
+                reason
+                  ? 'bg-red-500 text-white hover:bg-red-600 hover:shadow-lg'
+                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              }`}
+            >
+              <X className="w-5 h-5" />
+              Confirm Cancellation
             </button>
           </div>
         </div>

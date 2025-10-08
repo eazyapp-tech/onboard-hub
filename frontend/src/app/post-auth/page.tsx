@@ -7,7 +7,7 @@ import { RoleSelector } from "@/components/role-selector";
 import { useAppStore } from "@/lib/store";
 
 export default function PostAuth() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const router = useRouter();
   const [showRoleSelector, setShowRoleSelector] = useState(false);
   const setCurrentUser = useAppStore((state) => state.setCurrentUser);
@@ -26,16 +26,17 @@ export default function PostAuth() {
   }, [isLoaded, isSignedIn, router]);
 
   const handleRoleSelect = (role: 'sales' | 'cis') => {
-    // Set the user role in the store
+    // Set the user role in the store with actual user data
     setCurrentUser({
       id: 'clerk-user',
-      name: 'User',
-      email: '',
-      role: role
+      name: user?.firstName || user?.emailAddresses[0]?.emailAddress || 'User',
+      email: user?.emailAddresses[0]?.emailAddress || '',
+      role: role,
+      active: true
     });
     
-    // Redirect to main app
-    router.push("/");
+    // Force redirect to main app
+    window.location.href = "/";
   };
 
   if (!isLoaded || !showRoleSelector) {

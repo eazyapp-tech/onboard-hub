@@ -55,6 +55,8 @@ export function Providers({ children }: ProvidersProps) {
           borderRadius: '0.75rem',
         },
       }}
+      routerPush={(url) => window.location.href = url}
+      routerReplace={(url) => window.location.replace(url)}
     >
       {children}
     </ClerkProvider>

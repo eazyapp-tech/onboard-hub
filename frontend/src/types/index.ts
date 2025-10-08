@@ -39,6 +39,10 @@ export interface Booking {
   actualOnboardingDate?: string;
   actualOnboardingTime?: string;
   totalAmount: number;
+  cancellationReason?: string;         // new: reason for cancellation
+  cancellationRemarks?: string;        // new: additional remarks for cancellation
+  cancelledAt?: string;                // new: when the cancellation happened
+  cancelledBy?: string;                // new: who cancelled it
 }
 
 export interface BookingAddon {
@@ -116,7 +120,8 @@ export type OnboardingStatus =
   | 'Onboarding Started'
   | 'Onboarding Delayed'
   | 'Onboarding Done'
-  | 'Reopened';
+  | 'Reopened'
+  | 'Cancelled';
 
 // Each status change we log with time
 export interface StatusHistoryItem {

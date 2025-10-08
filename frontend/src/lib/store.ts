@@ -36,6 +36,11 @@ interface AppState {
   updateOnboardingStatus: (id: string, status: OnboardingStatus, note?: string) => void;
   attachOnboardingPhoto: (id: string, url: string) => void;
   setSelectedOnboarding: (id: string | null) => void;
+  
+  // backend data management
+  loadBookingsFromBackend: () => Promise<void>;
+  refreshBookings: () => Promise<void>;
+  migrateLocalDataToBackend: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>()(
@@ -171,6 +176,98 @@ export const useAppStore = create<AppState>()(
       }),
 
       setSelectedOnboarding: (id) => set({ selectedOnboardingId: id }),
+
+      // backend data management
+      loadBookingsFromBackend: async () => {
+        try {
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+          const response = await fetch(`${API_BASE_URL}/api/onboarding`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.ok && data.data) {
+              // Transform backend data to match frontend Booking interface
+              const transformedBookings = data.data.map((item: any) => ({
+                id: item._id,
+                bookingRef: `ONB-${new Date(item.createdAt).toISOString().slice(0, 10).replace(/-/g, '')}-${item._id.slice(-4)}`,
+                portfolioManager: item.portfolioManager || 'System',
+                ownerName: item.name,
+                ownerPhone: item.phone,
+                ownerEmail: item.email,
+                rentokId: item.propertyId,
+                noOfProperties: item.noOfProperties || 1,
+                noOfBeds: item.noOfBeds || 2,
+                subscriptionType: (item.subscriptionType as 'Base' | 'Silver' | 'Gold') || 'Base',
+                soldPricePerBed: item.soldPricePerBed || 0,
+                subscriptionStartDate: item.subscriptionStartDate || (item.moveInDate ? new Date(item.moveInDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
+                monthsBilled: item.monthsBilled || 6,
+                freeMonths: item.freeMonths || 0,
+                bookingLocation: (item.bookingLocation as 'north_delhi' | 'south_delhi' | 'noida' | 'gurgaon' | 'others') || 'north_delhi',
+                mode: (item.mode as 'virtual' | 'physical') || 'physical',
+                cisId: item.cisId,
+                slotWindow: item.slotWindow || '10_13',
+                date: item.date || (item.moveInDate ? new Date(item.moveInDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
+                status: 'scheduled' as const,
+                onboardingStatus: item.status || 'Onboarding Started',
+                createdBy: item.createdBy || 'System',
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                totalAmount: item.totalAmount || 0,
+                notes: item.notes
+              }));
+              set({ bookings: transformedBookings });
+              console.log('Loaded onboardings from backend:', transformedBookings.length);
+            }
+          } else {
+            console.warn('Failed to load onboardings from backend:', response.status);
+          }
+        } catch (error) {
+          console.error('Error loading onboardings from backend:', error);
+        }
+      },
+
+      refreshBookings: async () => {
+        const { loadBookingsFromBackend } = get();
+        await loadBookingsFromBackend();
+      },
+
+      migrateLocalDataToBackend: async () => {
+        try {
+          const { bookings } = get();
+          if (bookings.length === 0) {
+            console.log('No local data to migrate');
+            return;
+          }
+
+          console.log(`Migrating ${bookings.length} bookings to backend...`);
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+          
+          // Send each booking to the backend
+          for (const booking of bookings) {
+            try {
+              const response = await fetch(`${API_BASE_URL}/api/bookings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(booking),
+              });
+              
+              if (response.ok) {
+                console.log(`Migrated booking: ${booking.bookingRef}`);
+              } else {
+                console.error(`Failed to migrate booking: ${booking.bookingRef}`);
+              }
+            } catch (error) {
+              console.error(`Error migrating booking ${booking.bookingRef}:`, error);
+            }
+          }
+          
+          // Clear local storage and reload from backend
+          set({ bookings: [] });
+          await get().loadBookingsFromBackend();
+          console.log('Migration completed');
+        } catch (error) {
+          console.error('Migration error:', error);
+        }
+      },
     }),
     {
       name: 'onboarding-hub-storage',

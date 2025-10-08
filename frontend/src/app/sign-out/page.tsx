@@ -3,18 +3,26 @@
 import { useEffect } from 'react';
 import { useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import { useAppStore } from '@/lib/store';
 
 export default function SignOutPage() {
   const { signOut } = useClerk();
   const router = useRouter();
+  const { setCurrentUser } = useAppStore();
 
   useEffect(() => {
     const handleSignOut = async () => {
       try {
-        await signOut();
+        // Clear Zustand store first
+        setCurrentUser(null);
+        
         // Clear any local storage
         localStorage.clear();
         sessionStorage.clear();
+        
+        // Sign out from Clerk
+        await signOut();
+        
         // Redirect to sign-in page
         router.push('/sign-in');
       } catch (error) {
@@ -25,7 +33,7 @@ export default function SignOutPage() {
     };
 
     handleSignOut();
-  }, [signOut, router]);
+  }, [signOut, router, setCurrentUser]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">

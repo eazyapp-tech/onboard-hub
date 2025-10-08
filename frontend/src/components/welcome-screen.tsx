@@ -1,38 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { useUser, useSignIn } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 import { motion } from 'framer-motion';
-import { Chrome, Users, Calendar } from 'lucide-react';
-import { toast } from 'sonner';
+import { Mail, Users, Calendar } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export function WelcomeScreen() {
   const { isLoaded } = useUser();
-  const { signIn } = useSignIn();
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  const handleGoogleSignIn = async () => {
-    if (!signIn || loading) return;
-    
-    setLoading(true);
-    setError('');
-
-    try {
-      console.log('Starting Google OAuth sign-in...');
-      
-      // Use Clerk's OAuth with Google - let Clerk handle the redirects
-      await signIn.authenticateWithRedirect({
-        strategy: 'oauth_google',
-        redirectUrl: '/sso-callback',
-        redirectUrlComplete: '/'
-      });
-    } catch (error: any) {
-      console.error('Sign-in error:', error);
-      setError('Failed to sign in with Google. Please try again.');
-      toast.error('Failed to sign in with Google. Please try again.');
-      setLoading(false);
-    }
+  const handleEmailSignIn = () => {
+    router.push('/sign-in');
   };
 
   if (!isLoaded) {
@@ -112,17 +91,6 @@ export function WelcomeScreen() {
           </div>
         </motion.div>
         
-        {/* Error Message */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="mb-6 p-4 bg-red-100 border border-red-300 text-red-700 rounded-xl text-sm"
-          >
-            {error}
-          </motion.div>
-        )}
-        
         {/* Sign In Button */}
         <motion.button
           initial={{ opacity: 0, y: 20 }}
@@ -130,12 +98,11 @@ export function WelcomeScreen() {
           transition={{ delay: 0.7, duration: 0.6 }}
           whileHover={{ scale: 1.02, y: -2 }}
           whileTap={{ scale: 0.98 }}
-          onClick={handleGoogleSignIn}
-          disabled={loading}
-          className="w-full gradient-primary text-white px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed group"
+          onClick={handleEmailSignIn}
+          className="w-full gradient-primary text-white px-8 py-4 rounded-xl font-semibold flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transition-all duration-300 group"
         >
-          <Chrome className="w-6 h-6 group-hover:rotate-12 transition-transform duration-300" />
-          {loading ? 'Signing in...' : 'Continue with Google'}
+          <Mail className="w-6 h-6 group-hover:rotate-12 transition-transform duration-300" />
+          Sign in with Email
         </motion.button>
         
         {/* Additional Info */}
@@ -145,8 +112,20 @@ export function WelcomeScreen() {
           transition={{ delay: 0.8, duration: 0.6 }}
           className="mt-6 text-sm text-gray-500"
         >
-          Secure authentication powered by Google
+          Secure authentication with email OTP
         </motion.p>
+        
+        {/* Domain Restriction Notice */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.9, duration: 0.6 }}
+          className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"
+        >
+          <p className="text-xs text-blue-700">
+            <strong>Note:</strong> Only @eazyapp.tech email addresses are allowed
+          </p>
+        </motion.div>
       </motion.div>
     </div>
   );

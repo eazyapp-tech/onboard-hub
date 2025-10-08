@@ -15,8 +15,15 @@ export function EmailOTPSignIn() {
 
   // Check if user is already signed in
   if (isLoaded && signIn?.status === 'complete') {
-    router.push('/post-auth');
-    return null;
+    window.location.href = '/post-auth';
+    return (
+      <div className="w-full max-w-md mx-auto">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Redirecting...</p>
+        </div>
+      </div>
+    );
   }
 
   // Send OTP to email
@@ -24,33 +31,66 @@ export function EmailOTPSignIn() {
     e.preventDefault();
     if (!isLoaded || !signIn) return;
 
+    // Check if email is from allowed domain
+    if (!email.endsWith('@eazyapp.tech')) {
+      toast.error('Only @eazyapp.tech email addresses are allowed');
+      return;
+    }
+
     setLoading(true);
     try {
-      // Start the sign-in process with email
-      const result = await signIn.create({
+      console.log('Starting sign-in process for:', email);
+      
+      // Create sign-in attempt
+      const signInResult = await signIn.create({
         identifier: email,
       });
 
-      // Send the email code
-      const prepareResult = await signIn.prepareFirstFactor({
-        strategy: 'email_code',
-        emailAddressId: result.supportedFirstFactors.find(
-          (factor) => factor.strategy === 'email_code'
-        )?.emailAddressId,
-      });
+      console.log('Sign-in result:', signInResult);
 
-      toast.success('OTP sent to your email!');
-      setStep('code');
+      if (signInResult.status === 'needs_first_factor') {
+        // Find email code factor
+        const emailFactor = signInResult.supportedFirstFactors.find(
+          (factor) => factor.strategy === 'email_code'
+        );
+        
+        if (emailFactor) {
+          console.log('Preparing email factor:', emailFactor);
+          
+          // Prepare the email code factor
+          await signIn.prepareFirstFactor({
+            strategy: 'email_code',
+            emailAddressId: emailFactor.emailAddressId,
+          });
+          
+          console.log('Email factor prepared, OTP should be sent');
+          toast.success('OTP sent to your email!');
+          setStep('code');
+        } else {
+          console.error('No email code factor found');
+          toast.error('Email verification not available for this account');
+        }
+      } else if (signInResult.status === 'complete') {
+        // User is already signed in
+        console.log('User already signed in');
+        toast.error('You are already signed in. Redirecting...');
+        window.location.href = '/post-auth';
+        return;
+      } else {
+        console.error('Unexpected sign-in status:', signInResult.status);
+        toast.error('Unexpected sign-in status: ' + signInResult.status);
+      }
     } catch (err: any) {
-      console.error('Error sending code:', err);
+      console.error('Sign-in error:', err);
       
       // Handle session already exists error
       if (err.errors?.[0]?.code === 'session_exists') {
         toast.error('You are already signed in. Redirecting...');
-        router.push('/post-auth');
-      } else {
-        toast.error(err.errors?.[0]?.message || 'Failed to send OTP');
+        window.location.href = '/post-auth';
+        return;
       }
+      
+      toast.error(err.errors?.[0]?.message || 'Failed to send OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -61,25 +101,35 @@ export function EmailOTPSignIn() {
     e.preventDefault();
     if (!isLoaded || !signIn) return;
 
+    // Validate OTP code
+    if (!code || code.length !== 6) {
+      toast.error('Please enter a valid 6-digit OTP code');
+      return;
+    }
+
     setLoading(true);
     try {
-      // Attempt verification
+      console.log('Verifying OTP:', { code, email });
+      
+      // Attempt to verify the OTP
       const result = await signIn.attemptFirstFactor({
         strategy: 'email_code',
         code,
       });
 
+      console.log('OTP verification result:', result);
+
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
         toast.success('Successfully signed in!');
-        // Redirect to post-auth for role selection
-        router.push('/post-auth');
+        // Force redirect to post-auth
+        window.location.href = '/post-auth';
       } else {
         console.log('Additional steps required:', result);
         toast.error('Additional verification required');
       }
     } catch (err: any) {
-      console.error('Error verifying code:', err);
+      console.error('Error verifying OTP:', err);
       toast.error(err.errors?.[0]?.message || 'Invalid OTP code');
     } finally {
       setLoading(false);
@@ -106,6 +156,11 @@ export function EmailOTPSignIn() {
               ? 'Enter your email to receive a one-time password'
               : `We sent a code to ${email}`}
           </p>
+          {step === 'code' && (
+            <p className="text-sm text-blue-600 mt-2">
+              Signing you in...
+            </p>
+          )}
         </div>
 
         {step === 'email' ? (

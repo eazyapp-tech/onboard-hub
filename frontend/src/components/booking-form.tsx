@@ -24,7 +24,8 @@ export function BookingForm({
     assignCis,
     getAvailableSlots,
     getCisDayLock,
-    currentUser
+    currentUser,
+    refreshBookings
   } = useAppStore();
   const [formData, setFormData] = useState({
     portfolioManager: '',
@@ -252,6 +253,7 @@ export function BookingForm({
         email: selectedCisEmail,
         date: formData.date,
         mode: formData.mode,
+        cisId: formData.cisId,
       });
       const res = await fetch(`${API_BASE_URL}/api/freebusy?${params.toString()}`);
       const json = await res.json();
@@ -319,23 +321,25 @@ export function BookingForm({
           return;
         }
 
-        // Backend returns busy periods, we need to compute available slots
-        const busyPeriods = parseBusy(json.data || []);
-        const selectedDate = new Date(formData.date);
+        // Backend now returns available slots directly (not busy periods)
+        const availableFromBackend = json.data || [];
         
-        // Filter candidate slots to find available ones
-        const available = candidateSlots.filter(slot => {
-          const slotStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), slot.startHour, 0, 0);
-          const slotEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), slot.endHour, 0, 0);
+        // Map backend slots to our format
+        const available = availableFromBackend.map((slot: any) => {
+          // Backend returns slots with startTime/endTime, we need to map to our slot values
+          const startTime = new Date(slot.startTime);
+          const endTime = new Date(slot.endTime);
+          const startHour = startTime.getHours();
+          const endHour = endTime.getHours();
           
-          // Check if this slot overlaps with any busy period
-          return !busyPeriods.some(busy => 
-            rangesOverlap(slotStart, slotEnd, busy.start, busy.end)
-          );
-        }).map(slot => ({
-          value: slot.value,
-          label: slot.label
-        }));
+          // Find matching candidate slot
+          const matchingSlot = candidateSlots.find(cs => cs.startHour === startHour && cs.endHour === endHour);
+          
+          return matchingSlot ? {
+            value: matchingSlot.value,
+            label: matchingSlot.label
+          } : null;
+        }).filter(Boolean) as { value: string; label: string }[];
 
         setSlotOptions(available);
 
@@ -496,6 +500,33 @@ try {
   console.error('Onboarding sheet sync error:', e);
   toast.error('Saved booking, but sheet call errored. Check console.');
 }
+
+      // 2c) NEW: Update Sales Bookings Sheet3
+      try {
+        const salesBookingPayload = {
+          ...booking,
+          cisId: formData.cisId,
+          cisEmail: selectedCisEmail
+        };
+        
+        const res3 = await fetch(`${API_BASE_URL}/api/sales-booking`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(salesBookingPayload),
+        });
+        
+        const data3 = await res3.json();
+        
+        if (!res3.ok || !data3?.ok) {
+          console.error('Sales booking sheet sync failed:', data3);
+          toast.error('Saved booking, but failed to save to Sales sheet.');
+        } else {
+          toast.success('Sales booking saved to Sheet3 ✅');
+        }
+      } catch (e) {
+        console.error('Sales booking sheet sync error:', e);
+        toast.error('Saved booking, but sales sheet call errored. Check console.');
+      }
   
       const data = await res.json();
       if (!res.ok || !data?.ok) {
@@ -514,6 +545,15 @@ try {
   
     // 3) your original success flow
     toast.success(`Booking created successfully! Ref: ${bookingRef}`);
+    
+    // 4) Refresh data from backend to ensure all users see the new booking
+    try {
+      await refreshBookings();
+      console.log('Data refreshed after booking creation');
+    } catch (error) {
+      console.error('Failed to refresh data after booking creation:', error);
+    }
+    
     onSuccess();
   };  
   const addAddon = () => {
@@ -851,20 +891,76 @@ try {
               <div data-unique-id="ea626b52-a745-4ff6-95ed-ce9f85acba4e" data-file-name="components/booking-form.tsx">
                 <label className="block text-sm font-medium mb-2">Time Slot *</label>
 
-                <select
-                  required
-                  value={formData.slotWindow}
-                  onChange={e => setFormData({ ...formData, slotWindow: e.target.value })}
-                  className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">{loadingSlots ? 'Loading availability…' : 'Select time slot'}</option>
+                <div className="space-y-2">
+                  <select
+                    required
+                    value={formData.slotWindow}
+                    onChange={e => setFormData({ ...formData, slotWindow: e.target.value })}
+                    className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">{loadingSlots ? 'Loading availability…' : 'Select time slot'}</option>
 
-                  {slotOptions.map(slot => (
-                    <option key={slot.value} value={slot.value}>
-                      {slot.label}
-                    </option>
-                  ))}
-                </select>
+                    {slotOptions.map(slot => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                  
+                  {/* Show available slots with visual indicators */}
+                  {!loadingSlots && slotOptions.length > 0 && (
+                    <div className="grid grid-cols-1 gap-2 mt-3">
+                      <p className="text-sm font-medium text-gray-700">Available Time Slots:</p>
+                      {slotOptions.map(slot => (
+                        <div
+                          key={slot.value}
+                          className={`p-2 rounded-lg border-2 transition-colors ${
+                            formData.slotWindow === slot.value
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-green-200 bg-green-50 text-green-700 hover:border-green-300 cursor-pointer'
+                          }`}
+                          onClick={() => setFormData({ ...formData, slotWindow: slot.value })}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{slot.label}</span>
+                            <span className="text-xs bg-green-100 text-green-600 px-2 py-1 rounded-full">
+                              Available
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Show unavailable slots if any */}
+                  {!loadingSlots && cisUser && (
+                    (() => {
+                      const candidateSlots = getCandidateSlotsForCis(formData.cisId, formData.mode);
+                      const unavailableSlots = candidateSlots.filter(slot => 
+                        !slotOptions.find(available => available.value === slot.value)
+                      );
+                      
+                      return unavailableSlots.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-2 mt-3">
+                          <p className="text-sm font-medium text-gray-700">Unavailable Time Slots:</p>
+                          {unavailableSlots.map(slot => (
+                            <div
+                              key={slot.value}
+                              className="p-2 rounded-lg border-2 border-gray-200 bg-gray-50 text-gray-500 opacity-60"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{slot.label}</span>
+                                <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">
+                                  Booked
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()
+                  )}
+                </div>
 
                 {slotsError && (
                   <p className="text-sm text-red-600 mt-2">{slotsError}</p>

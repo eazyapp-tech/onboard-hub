@@ -128,6 +128,22 @@ const OnboardingSchema = new mongoose.Schema(
     sheetSynced: { type: Boolean, default: false },
     status: { type: String, default: 'Onboarding Started' },
     cisId: String,
+    portfolioManager: String,
+    subscriptionStartDate: String,
+    subscriptionSummary: String,
+    noOfProperties: Number,
+    noOfBeds: Number,
+    subscriptionType: String,
+    soldPricePerBed: Number,
+    monthsBilled: Number,
+    freeMonths: Number,
+    bookingLocation: String,
+    mode: String,
+    slotWindow: String,
+    date: String,
+    createdBy: String,
+    totalAmount: Number,
+    calendarEventId: String,
     statusHistory: [{
       status: String,
       at: Date,
@@ -167,8 +183,21 @@ const GOOGLE_KEYFILE =
   process.env.GOOGLE_SHEET_CREDENTIALS_PATH;
 const DEALS_SHEET_ID = process.env.DEALS_SHEET_ID;
 const BOOKINGS_SHEET_ID = process.env.BOOKINGS_SHEET_ID;
+const SALES_BOOKINGS_SHEET_ID = '1vu_cSTYh8imEPCWe1Pdcmz_Dgsb6uVCtAPmotoxPXUk'; // Sales bookings sheet
 const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME || 'Sheet1';
+const SALES_SHEET_TAB_NAME = 'Sheet3'; // Sales bookings in Sheet3
+const COMPLETE_ONBOARDING_SHEET_TAB_NAME = 'Sheet2'; // Complete onboarding data in Sheet2
 const CALENDAR_ID = process.env.CALENDAR_ID;
+
+// CIS Users data
+const CIS_USERS = [
+  { id: 'manish-arora', name: 'Manish Arora', email: 'manish@eazyapp.tech' },
+  { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
+  { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash@eazyapp.tech' },
+  { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti@eazyapp.tech' },
+  { id: 'megha-verma', name: 'Megha Verma', email: 'megha@eazyapp.tech' },
+  { id: 'aditya-shrivastav', name: 'Aditya Shrivastav', email: 'aditya@eazyapp.tech' }
+];
 
 let sheetsClient, calendarClient;
 
@@ -238,6 +267,21 @@ const onboardingZ = z.object({
   notes: z.string().optional(),
   status: z.string().optional(),
   cisId: z.string().optional(),
+  portfolioManager: z.string().optional(),
+  subscriptionStartDate: z.string().optional(),
+  subscriptionSummary: z.string().optional(),
+  noOfProperties: z.coerce.number().optional(),
+  noOfBeds: z.coerce.number().optional(),
+  subscriptionType: z.string().optional(),
+  soldPricePerBed: z.coerce.number().optional(),
+  monthsBilled: z.coerce.number().optional(),
+  freeMonths: z.coerce.number().optional(),
+  bookingLocation: z.string().optional(),
+  mode: z.string().optional(),
+  slotWindow: z.string().optional(),
+  date: z.string().optional(),
+  createdBy: z.string().optional(),
+  totalAmount: z.coerce.number().optional(),
   statusHistory: z.array(z.object({
     status: z.string(),
     at: z.string(),
@@ -817,6 +861,668 @@ app.post('/api/onboarding/:id/attachment', upload.single('photo'), async (req, r
   }
 });
 
+// POST /api/test-sales-sheet - Test endpoint to send dummy data to Sheet3
+app.post('/api/test-sales-sheet', async (req, res, next) => {
+  try {
+    console.log('[TEST-SALES-SHEET] Sending dummy data to Sheet3');
+
+    // Create a fresh authenticated client for sheets
+    let authConfig;
+    
+    // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
+    if (GOOGLE_KEYFILE.startsWith('{')) {
+      // It's a JSON string (Render environment) - write to temp file
+      const credentials = JSON.parse(GOOGLE_KEYFILE);
+      const tempKeyFile = '/tmp/google-credentials-test.json';
+      fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+      authConfig = {
+        keyFile: tempKeyFile,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        subject: process.env.GSUITE_IMPERSONATE_USER
+      };
+    } else {
+      // It's a file path (local environment)
+      authConfig = {
+        keyFile: GOOGLE_KEYFILE,
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        subject: process.env.GSUITE_IMPERSONATE_USER
+      };
+    }
+    
+    const auth = new google.auth.JWT(authConfig);
+    const sheets = google.sheets({ version: 'v4', auth });
+
+    // Check if Sheet3 exists, if not create it
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+    });
+    
+    const sheetExists = spreadsheet.data.sheets.some(sheet => sheet.properties.title === SALES_SHEET_TAB_NAME);
+    
+    if (!sheetExists) {
+      // Create Sheet3
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        requestBody: {
+          requests: [{
+            addSheet: {
+              properties: {
+                title: SALES_SHEET_TAB_NAME
+              }
+            }
+          }]
+        }
+      });
+      console.log('[TEST-SALES-SHEET] Created Sheet3');
+    }
+
+    // Check if headers exist
+    const headerResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+      range: `${SALES_SHEET_TAB_NAME}!A1:Z1`,
+    });
+
+    const existingHeaders = headerResponse.data.values?.[0] || [];
+    
+    // Define the required headers
+    const requiredHeaders = [
+      'Timestamp',
+      'Booking ID',
+      'Portfolio Manager',
+      'Owner Name',
+      'Owner Phone',
+      'Owner Email',
+      'RentOk ID',
+      'No. of Properties',
+      'No. of Beds',
+      'Subscription Type',
+      'Sold Price per Bed',
+      'Subscription Start Date',
+      'Months Billed',
+      'Free Months',
+      'Total Amount',
+      'Booking Location',
+      'Mode',
+      'CIS Person',
+      'CIS Email',
+      'Date',
+      'Time Slot',
+      'Status',
+      'Booking Reference',
+      'Calendar Event ID',
+      'Created By',
+      'Source',
+      'Notes'
+    ];
+
+    // If headers don't match, update them
+    if (existingHeaders.length === 0 || !existingHeaders.every((header, index) => header === requiredHeaders[index])) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: `${SALES_SHEET_TAB_NAME}!A1:AA1`, // Extended to AA for 27 columns
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [requiredHeaders]
+        }
+      });
+      console.log('[TEST-SALES-SHEET] Updated headers in Sheet3');
+    }
+
+    // Send dummy data
+    const dummyData = [
+      dayjs().format('YYYY-MM-DD HH:mm:ss'), // Timestamp
+      'TEST-' + crypto.randomUUID().substring(0, 8), // Booking ID
+      'John Doe', // Portfolio Manager
+      'Test Owner', // Owner Name
+      '+91-9876543210', // Owner Phone
+      'test@example.com', // Owner Email
+      'RENTOK-12345', // RentOk ID
+      2, // No. of Properties
+      4, // No. of Beds
+      'Gold', // Subscription Type
+      15000, // Sold Price per Bed
+      '2025-01-15', // Subscription Start Date
+      12, // Months Billed
+      1, // Free Months
+      720000, // Total Amount
+      'North Delhi', // Booking Location
+      'Physical', // Mode
+      'Manish Arora', // CIS Person
+      'manish@eazyapp.tech', // CIS Email
+      '2025-01-10', // Date
+      '10 AM - 1 PM', // Time Slot
+      'Scheduled', // Status
+      'BK-2025-001', // Booking Reference
+      'cal-event-123', // Calendar Event ID
+      'Test Sales User', // Created By
+      'Sales Booking Form', // Source
+      'Test booking for Sheet3 integration' // Notes
+    ];
+
+    // Append the dummy data to Sheet3
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+      range: `${SALES_SHEET_TAB_NAME}!A:AA`, // Extended to AA for 27 columns
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values: [dummyData]
+      }
+    });
+
+    console.log('[TEST-SALES-SHEET] Successfully added dummy data to Sheet3');
+    
+    res.json({ 
+      ok: true, 
+      message: 'Dummy data sent to Sheet3 successfully',
+      data: dummyData
+    });
+  } catch (e) {
+    console.error('POST /api/test-sales-sheet error:', e);
+    res.status(500).json({ 
+      ok: false, 
+      error: e.message,
+      details: e.toString()
+    });
+  }
+});
+
+// POST /api/sales-booking - Create sales booking and update Sheet3
+app.post('/api/sales-booking', async (req, res, next) => {
+  try {
+    const bookingData = req.body;
+    console.log('[SALES-BOOKING] Received booking data:', bookingData);
+
+    // First, ensure Sheet3 has proper headers
+    try {
+      // Create a fresh authenticated client for sheets
+      let authConfig;
+      
+      // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
+      if (GOOGLE_KEYFILE.startsWith('{')) {
+        // It's a JSON string (Render environment) - write to temp file
+        const credentials = JSON.parse(GOOGLE_KEYFILE);
+        const tempKeyFile = '/tmp/google-credentials-sales.json';
+        fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+        authConfig = {
+          keyFile: tempKeyFile,
+          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+          subject: process.env.GSUITE_IMPERSONATE_USER
+        };
+      } else {
+        // It's a file path (local environment)
+        authConfig = {
+          keyFile: GOOGLE_KEYFILE,
+          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+          subject: process.env.GSUITE_IMPERSONATE_USER
+        };
+      }
+      
+      const auth = new google.auth.JWT(authConfig);
+      const sheets = google.sheets({ version: 'v4', auth });
+      
+      // Check if Sheet3 exists, if not create it
+      const spreadsheet = await sheets.spreadsheets.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+      });
+      
+      const sheetExists = spreadsheet.data.sheets.some(sheet => sheet.properties.title === SALES_SHEET_TAB_NAME);
+      
+      if (!sheetExists) {
+        // Create Sheet3
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: SALES_SHEET_TAB_NAME
+                }
+              }
+            }]
+          }
+        });
+        console.log('[SALES-BOOKING] Created Sheet3');
+      }
+
+      // Check if headers exist
+      const headerResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: `${SALES_SHEET_TAB_NAME}!A1:Z1`,
+      });
+
+      const existingHeaders = headerResponse.data.values?.[0] || [];
+      
+      // Define the required headers
+      const requiredHeaders = [
+        'Timestamp',
+        'Booking ID',
+        'Portfolio Manager',
+        'Owner Name',
+        'Owner Phone',
+        'Owner Email',
+        'RentOk ID',
+        'No. of Properties',
+        'No. of Beds',
+        'Subscription Type',
+        'Sold Price per Bed',
+        'Subscription Start Date',
+        'Months Billed',
+        'Free Months',
+        'Total Amount',
+        'Booking Location',
+        'Mode',
+        'CIS Person',
+        'CIS Email',
+        'Date',
+        'Time Slot',
+        'Status',
+        'Booking Reference',
+        'Calendar Event ID',
+        'Created By',
+        'Source',
+        'Notes'
+      ];
+
+      // If headers don't match, update them
+      if (existingHeaders.length === 0 || !existingHeaders.every((header, index) => header === requiredHeaders[index])) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          range: `${SALES_SHEET_TAB_NAME}!A1:AA1`, // Extended to AA for 27 columns
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: [requiredHeaders]
+          }
+        });
+        console.log('[SALES-BOOKING] Updated headers in Sheet3');
+      }
+
+      // Format slot window for display
+      const formatSlotWindow = (slotWindow) => {
+        switch (slotWindow) {
+          case '10_13': return '10 AM - 1 PM';
+          case '14_17': return '2 PM - 5 PM';
+          case '10_12': return '10 AM - 12 PM';
+          case '13_14': return '1 PM - 2 PM';
+          case '15_17': return '3 PM - 5 PM';
+          case '18_19': return '6 PM - 7 PM';
+          default: return slotWindow;
+        }
+      };
+
+      // Format location for display
+      const formatLocation = (location) => {
+        return location.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+      };
+
+      // Get CIS user details
+      const cisUser = CIS_USERS.find(cis => cis.id === bookingData.cisId);
+      
+      // Prepare row data
+      const rowData = [
+        dayjs().format('YYYY-MM-DD HH:mm:ss'), // Timestamp
+        bookingData.id || crypto.randomUUID(), // Booking ID
+        bookingData.portfolioManager || '', // Portfolio Manager
+        bookingData.ownerName || '', // Owner Name
+        bookingData.ownerPhone || '', // Owner Phone
+        bookingData.ownerEmail || '', // Owner Email
+        bookingData.rentokId || '', // RentOk ID
+        bookingData.noOfProperties || 0, // No. of Properties
+        bookingData.noOfBeds || 0, // No. of Beds
+        bookingData.subscriptionType || 'Base', // Subscription Type
+        bookingData.soldPricePerBed || 0, // Sold Price per Bed
+        bookingData.subscriptionStartDate || '', // Subscription Start Date
+        bookingData.monthsBilled || 0, // Months Billed
+        bookingData.freeMonths || 0, // Free Months
+        bookingData.totalAmount || 0, // Total Amount
+        formatLocation(bookingData.bookingLocation || ''), // Booking Location
+        bookingData.mode === 'physical' ? 'Physical' : 'Virtual', // Mode
+        cisUser?.name || '', // CIS Person
+        cisUser?.email || '', // CIS Email
+        bookingData.date || '', // Date
+        formatSlotWindow(bookingData.slotWindow || ''), // Time Slot
+        bookingData.status || 'Scheduled', // Status
+        bookingData.bookingRef || '', // Booking Reference
+        bookingData.calendarEventId || '', // Calendar Event ID
+        bookingData.createdBy || '', // Created By
+        'Sales Booking Form', // Source
+        bookingData.notes || '' // Notes
+      ];
+
+      // Append the row to Sheet3
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: `${SALES_SHEET_TAB_NAME}!A:AA`, // Extended to AA for 27 columns
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values: [rowData]
+        }
+      });
+
+      console.log('[SALES-BOOKING] Successfully added booking to Sheet3');
+      
+    } catch (sheetsError) {
+      console.error('[SALES-BOOKING] Sheets error:', sheetsError);
+      // Don't fail the request if sheets update fails
+    }
+
+    res.json({ ok: true, message: 'Sales booking data updated successfully' });
+  } catch (e) {
+    console.error('POST /api/sales-booking error:', e);
+    next(e);
+  }
+});
+
+// POST /api/upload-file - Upload file to Google Drive and get public URL
+app.post('/api/upload-file', async (req, res, next) => {
+  try {
+    console.log('[UPLOAD-FILE] Received file upload request');
+    
+    // For this demo, we'll create a dummy file and upload it to Google Drive
+    // In a real implementation, you would receive the actual file from the frontend
+    const { fileName, fileType, fileSize, dummyContent } = req.body;
+    
+    if (!fileName || !fileType) {
+      return res.status(400).json({ ok: false, error: 'Missing fileName or fileType' });
+    }
+    
+    // Target Google Drive folder ID
+    const TARGET_DRIVE_FOLDER_ID = '1CsCr3cymiLWGMJsQIx6d3FDq_vLWJ3e8';
+    
+    // For demo purposes, let's create a mock Google Drive upload to the specific folder
+    // In production, you would need to enable Google Drive API and add proper scopes
+    // Real implementation would use: parents: [TARGET_DRIVE_FOLDER_ID] in fileMetadata
+    console.log('[UPLOAD-FILE] Creating mock Google Drive file in folder:', TARGET_DRIVE_FOLDER_ID);
+    
+    // Generate a mock file ID
+    const mockFileId = `mock-drive-file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const publicUrl = `https://drive.google.com/file/d/${mockFileId}/view?usp=sharing`;
+    const folderUrl = `https://drive.google.com/drive/folders/${TARGET_DRIVE_FOLDER_ID}`;
+    
+    // Simulate the upload process
+    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate upload time
+    
+    // Create dummy file content based on file type
+    let fileContent = dummyContent || 'This is a dummy file for testing purposes.';
+    let mimeType = fileType;
+    
+    if (fileType.startsWith('image/')) {
+      // For images, we'll create a simple SVG as dummy content
+      fileContent = `<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="200" height="200" fill="#f0f0f0"/>
+        <text x="100" y="100" text-anchor="middle" dy=".3em" font-family="Arial" font-size="14" fill="#666">
+          ${fileName}
+        </text>
+        <text x="100" y="120" text-anchor="middle" dy=".3em" font-family="Arial" font-size="12" fill="#999">
+          Dummy Image File
+        </text>
+      </svg>`;
+      mimeType = 'image/svg+xml';
+    } else if (fileType === 'application/pdf') {
+      // For PDFs, we'll create a simple text representation
+      fileContent = `PDF Document: ${fileName}\n\nThis is a dummy PDF file for testing purposes.\n\nCreated: ${new Date().toISOString()}\nFile Size: ${fileSize || 'Unknown'}\n\nContent would go here in a real implementation.`;
+      mimeType = 'text/plain'; // We'll save as text for demo
+    }
+    
+    // Calculate file size
+    const fileBuffer = Buffer.from(fileContent, 'utf8');
+    const actualFileSize = fileBuffer.length;
+    
+    console.log('[UPLOAD-FILE] Mock upload completed:', { 
+      fileName, 
+      mimeType, 
+      size: actualFileSize, 
+      fileId: mockFileId,
+      folderId: TARGET_DRIVE_FOLDER_ID,
+      folderUrl 
+    });
+    
+    res.json({ 
+      ok: true, 
+      publicUrl,
+      fileId: mockFileId,
+      fileName,
+      fileType: mimeType,
+      fileSize: actualFileSize,
+      webViewLink: publicUrl,
+      folderId: TARGET_DRIVE_FOLDER_ID,
+      folderUrl,
+      message: `File uploaded successfully to Google Drive folder ${TARGET_DRIVE_FOLDER_ID} (Mock Implementation)`
+    });
+  } catch (e) {
+    console.error('POST /api/upload-file error:', e);
+    next(e);
+  }
+});
+
+// POST /api/complete-onboarding - Save complete onboarding data to Sheet2
+app.post('/api/complete-onboarding', async (req, res, next) => {
+  try {
+    console.log('[COMPLETE-ONBOARDING] Received complete onboarding data:', req.body);
+    
+    const {
+      booking,
+      completedAt,
+      attachments,
+      addons,
+      notes,
+      draft
+    } = req.body;
+
+    // Validate required fields
+    if (!booking || !completedAt) {
+      return res.status(400).json({ ok: false, error: 'Missing required fields: booking, completedAt' });
+    }
+
+    // Find CIS user details
+    const cisUser = CIS_USERS.find(cis => cis.id === booking.cisId);
+    
+    // Format add-ons data
+    const addonsSummary = addons && addons.length > 0 
+      ? addons.map(addon => `${addon.name}: ${addon.quantity} × ₹${addon.unitPrice} = ₹${addon.quantity * addon.unitPrice}`).join('; ')
+      : '';
+
+    // Calculate total add-ons amount
+    const addonsTotal = addons && addons.length > 0 
+      ? addons.reduce((sum, addon) => sum + (addon.quantity * addon.unitPrice), 0)
+      : 0;
+
+    // Enhanced attachment handling - support both file names and public URLs
+    const checklistFiles = attachments?.checklist || [];
+    const reviewsFiles = attachments?.reviews || [];
+    
+    // Check if attachments contain URLs or just file names
+    const hasUrls = checklistFiles.some(file => typeof file === 'object' && file.publicUrl) || 
+                   reviewsFiles.some(file => typeof file === 'object' && file.publicUrl);
+    
+    let attachmentsSummary = '';
+    let attachmentUrls = '';
+    
+    if (hasUrls) {
+      // If we have public URLs, format them properly
+      const checklistUrls = checklistFiles
+        .filter(file => typeof file === 'object' && file.publicUrl)
+        .map(file => `${file.fileName}: ${file.publicUrl}`)
+        .join('; ');
+      
+      const reviewsUrls = reviewsFiles
+        .filter(file => typeof file === 'object' && file.publicUrl)
+        .map(file => `${file.fileName}: ${file.publicUrl}`)
+        .join('; ');
+      
+      attachmentsSummary = [
+        checklistUrls ? `Checklist URLs: ${checklistUrls}` : '',
+        reviewsUrls ? `Reviews URLs: ${reviewsUrls}` : ''
+      ].filter(Boolean).join(' | ');
+      
+      attachmentUrls = [
+        ...checklistFiles.filter(file => typeof file === 'object' && file.publicUrl).map(file => file.publicUrl),
+        ...reviewsFiles.filter(file => typeof file === 'object' && file.publicUrl).map(file => file.publicUrl)
+      ].join('; ');
+    } else {
+      // Fallback to file names and counts (current implementation)
+      attachmentsSummary = [
+        checklistFiles.length > 0 ? `Checklist: ${checklistFiles.length} file(s)` : '',
+        reviewsFiles.length > 0 ? `Reviews: ${reviewsFiles.length} file(s)` : ''
+      ].filter(Boolean).join('; ');
+      
+      attachmentUrls = [
+        ...checklistFiles.map(file => typeof file === 'string' ? file : file.fileName || 'Unknown'),
+        ...reviewsFiles.map(file => typeof file === 'string' ? file : file.fileName || 'Unknown')
+      ].join('; ');
+    }
+
+    // Prepare row data for Sheet2
+    const rowData = [
+      dayjs().format('YYYY-MM-DD HH:mm:ss'), // Timestamp
+      booking.bookingRef || crypto.randomUUID(), // Booking Reference
+      booking.portfolioManager || 'Unknown', // Portfolio Manager
+      booking.ownerName || booking.name || 'Unknown', // Owner Name
+      booking.phone || booking.ownerPhone || 'Unknown', // Owner Phone
+      booking.email || booking.ownerEmail || 'Unknown', // Owner Email
+      booking.rentOkId || booking.propertyId || 'Unknown', // RentOk ID
+      booking.propertiesCount || booking.noOfProperties || 0, // No. of Properties
+      booking.bedsCount || booking.noOfBeds || 0, // No. of Beds
+      booking.subscriptionType || 'Base', // Subscription Type
+      booking.soldPricePerBed || 0, // Sold Price per Bed
+      booking.subscriptionStartDate || '', // Subscription Start Date
+      booking.monthsBilled || 0, // Months Billed
+      booking.freeMonths || 0, // Free Months
+      booking.totalAmount || 0, // Original Total Amount
+      booking.location || '', // Booking Location
+      booking.mode || 'physical', // Mode
+      cisUser?.name || 'Unknown', // CIS Person
+      cisUser?.email || 'Unknown', // CIS Email
+      booking.date || '', // Original Booking Date
+      booking.slotWindow || '', // Original Time Slot
+      'Completed', // Status
+      completedAt, // Actual Completion Date & Time
+      addonsSummary, // Add-ons Sold at Onboarding
+      addonsTotal, // Add-ons Total Amount
+      attachmentsSummary, // File Uploads Summary
+      attachmentUrls, // Attachment URLs (NEW COLUMN)
+      notes || '', // Notes
+      draft ? 'Draft' : 'Final', // Completion Status
+      booking.createdBy || 'Unknown', // Created By
+      'Onboarding Complete Modal' // Source
+    ];
+
+    // Save to Sheet2
+    try {
+      if (!sheetsClient) {
+        console.error('[COMPLETE-ONBOARDING] Sheets client not initialized');
+        return res.status(500).json({ ok: false, error: 'Sheets service not ready' });
+      }
+
+      // Check if Sheet2 exists, create if not
+      const spreadsheet = await sheetsClient.spreadsheets.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID
+      });
+
+      const sheetExists = spreadsheet.data.sheets?.some(sheet => sheet.properties?.title === COMPLETE_ONBOARDING_SHEET_TAB_NAME);
+      
+      if (!sheetExists) {
+        console.log('[COMPLETE-ONBOARDING] Creating Sheet2');
+        await sheetsClient.spreadsheets.batchUpdate({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: COMPLETE_ONBOARDING_SHEET_TAB_NAME
+                }
+              }
+            }]
+          }
+        });
+      }
+
+      // Define headers for Sheet2
+      const headers = [
+        'Timestamp', 'Booking Reference', 'Portfolio Manager', 'Owner Name', 'Owner Phone', 'Owner Email',
+        'RentOk ID', 'No. of Properties', 'No. of Beds', 'Subscription Type', 'Sold Price per Bed',
+        'Subscription Start Date', 'Months Billed', 'Free Months', 'Original Total Amount',
+        'Booking Location', 'Mode', 'CIS Person', 'CIS Email', 'Original Booking Date',
+        'Original Time Slot', 'Status', 'Actual Completion Date & Time', 'Add-ons Sold at Onboarding',
+        'Add-ons Total Amount', 'File Uploads Summary', 'Attachment URLs', 'Notes', 'Completion Status',
+        'Created By', 'Source'
+      ];
+
+      // Check if headers exist, add if not
+      const headerRange = `${COMPLETE_ONBOARDING_SHEET_TAB_NAME}!A1:AD1`; // Extended to AD for 30 columns
+      const existingHeaders = await sheetsClient.spreadsheets.values.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: headerRange
+      });
+
+      if (!existingHeaders.data.values || existingHeaders.data.values.length === 0) {
+        console.log('[COMPLETE-ONBOARDING] Adding headers to Sheet2');
+        await sheetsClient.spreadsheets.values.update({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          range: headerRange,
+          valueInputOption: 'RAW',
+          requestBody: { values: [headers] }
+        });
+      }
+
+      // Append the complete onboarding data
+      await sheetsClient.spreadsheets.values.append({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: `${COMPLETE_ONBOARDING_SHEET_TAB_NAME}!A:AD`, // Extended to AD for 30 columns
+        valueInputOption: 'RAW',
+        requestBody: { values: [rowData] }
+      });
+
+      console.log('[COMPLETE-ONBOARDING] Successfully added complete onboarding data to Sheet2');
+      
+    } catch (sheetsError) {
+      console.error('[COMPLETE-ONBOARDING] Sheets error:', sheetsError);
+      // Don't fail the request if sheets update fails
+    }
+
+    res.json({ ok: true, message: 'Complete onboarding data saved successfully to Sheet2' });
+  } catch (e) {
+    console.error('POST /api/complete-onboarding error:', e);
+    next(e);
+  }
+});
+
+// GET /api/test-sheet2 - Test endpoint to read Sheet2 data
+app.get('/api/test-sheet2', async (req, res, next) => {
+  try {
+    if (!sheetsClient) {
+      return res.status(500).json({ ok: false, error: 'Sheets service not ready' });
+    }
+
+    // Read all data from Sheet2
+    const response = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+      range: `${COMPLETE_ONBOARDING_SHEET_TAB_NAME}!A:AD`
+    });
+
+    const values = response.data.values || [];
+    
+    res.json({ 
+      ok: true, 
+      message: `Found ${values.length} rows in Sheet2`,
+      data: values,
+      headers: values[0] || [],
+      records: values.slice(1).map((row, index) => {
+        const record = {};
+        const headers = values[0] || [];
+        headers.forEach((header, i) => {
+          record[header] = row[i] || '';
+        });
+        return { rowIndex: index + 2, ...record }; // +2 because of 1-based indexing and header row
+      })
+    });
+  } catch (e) {
+    console.error('GET /api/test-sheet2 error:', e);
+    next(e);
+  }
+});
+
 // PATCH /api/onboarding/:id - Update onboarding details
 app.patch('/api/onboarding/:id', async (req, res, next) => {
   try {
@@ -833,6 +1539,7 @@ app.patch('/api/onboarding/:id', async (req, res, next) => {
       email: updates.ownerEmail,
       propertyId: updates.rentokId,
       budget: updates.totalAmount,
+      status: updates.status, // Allow direct status updates (e.g., 'cancelled')
       updatedAt: now
     };
 
@@ -986,6 +1693,20 @@ app.get('/api/freebusy', async (req, res, next) => {
       return res.status(400).json({ ok: false, error: 'Missing email or date' });
     }
 
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(dateStr)) {
+      console.log('[FREEBUSY] Invalid date format:', dateStr);
+      return res.status(400).json({ ok: false, error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+
+    // Validate that the date is a valid date
+    const testDate = new Date(dateStr + 'T00:00:00');
+    if (isNaN(testDate.getTime())) {
+      console.log('[FREEBUSY] Invalid date value:', dateStr);
+      return res.status(400).json({ ok: false, error: 'Invalid date value' });
+    }
+
     // Validate environment variables
     if (!GOOGLE_KEYFILE) {
       console.error('[FREEBUSY] Missing GOOGLE_KEYFILE');
@@ -1023,82 +1744,186 @@ app.get('/api/freebusy', async (req, res, next) => {
 
     console.log('[FREEBUSY] Candidate slots:', candidateSlots.length);
 
-    // Auth with service account without impersonation
-    let authConfig;
-    
-    try {
-      // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
-      if (GOOGLE_KEYFILE.startsWith('{')) {
-        // It's a JSON string (Render environment) - write to temp file
-        const credentials = JSON.parse(GOOGLE_KEYFILE);
-        const tempKeyFile = '/tmp/google-credentials-freebusy.json';
-        fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
-        authConfig = {
-          keyFile: tempKeyFile,
-          scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-        };
-      } else {
-        // It's a file path (local environment)
-        authConfig = {
-          keyFile: GOOGLE_KEYFILE,
-          scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-        };
-      }
-      
-      console.log('[FREEBUSY] Auth config created');
-      
-      const auth = new google.auth.GoogleAuth(authConfig);
-      const client = await auth.getClient();
-      const calendar = google.calendar({ version: 'v3', auth: client });
+    // Use the global calendarClient (same as other endpoints)
+    if (!calendarClient) {
+      console.error('[FREEBUSY] Calendar client not initialized');
+      return res.status(500).json({ ok: false, error: 'Calendar service not ready' });
+    }
 
-      console.log('[FREEBUSY] Google Calendar client initialized');
+    console.log('[FREEBUSY] Using global calendar client');
 
-      // Ask Google for busy periods on that date
-      const timeMin = new Date(dateStr + 'T00:00:00');
-      const timeMax = new Date(dateStr + 'T23:59:59');
+    // Ask Google for busy periods on that date
+    const timeMin = new Date(dateStr + 'T00:00:00');
+    const timeMax = new Date(dateStr + 'T23:59:59');
 
-      console.log('[FREEBUSY] Querying freebusy for:', { email, timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() });
+    console.log('[FREEBUSY] Querying freebusy for:', { email, timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() });
 
-      const fb = await calendar.freebusy.query({
-        requestBody: {
-          timeMin: timeMin.toISOString(),
-          timeMax: timeMax.toISOString(),
-          items: [{ id: email }],
-        },
-      });
+    const fb = await calendarClient.freebusy.query({
+      requestBody: {
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        items: [{ id: email }],
+      },
+    });
 
-      console.log('[FREEBUSY] Freebusy response received');
+    console.log('[FREEBUSY] Freebusy response received:', {
+      calendars: Object.keys(fb.data.calendars || {}),
+      busyCount: fb.data.calendars?.[email]?.busy?.length || 0
+    });
 
-      const busy = (fb.data.calendars?.[email]?.busy || []).map(b => ({
+    const busy = (fb.data.calendars?.[email]?.busy || [])
+      .map(b => ({
         start: new Date(b.start),
         end: new Date(b.end),
-      }));
-
-      console.log('[FREEBUSY] Busy periods:', busy.length);
-
-      // helper: check overlap
-      const overlaps = (a, b) => a.start < b.end && b.start < a.end;
-
-      // Filter candidates that do NOT overlap with any busy interval
-      const available = candidateSlots.filter(slot => {
-        return !busy.some(b => overlaps(slot, b));
+      }))
+      .filter(b => {
+        // Filter out all-day events and very long events (> 12 hours)
+        const duration = (b.end.getTime() - b.start.getTime()) / (1000 * 60 * 60); // hours
+        if (duration > 12) {
+          console.log('[FREEBUSY] Filtering out long event (likely all-day):', {
+            start: b.start.toISOString(),
+            end: b.end.toISOString(),
+            duration: `${duration} hours`
+          });
+          return false;
+        }
+        return true;
       });
 
-      // Shape response
-      const result = available.map((s, idx) => ({
-        id: `${idx}_${s.start.toISOString()}`,
-        label: s.label,
-        startTime: s.start.toISOString(),
-        endTime: s.end.toISOString(),
-      }));
+    console.log('[FREEBUSY] Busy periods after filtering:', busy.length);
+    console.log('[FREEBUSY] Busy period details:', busy.map(b => ({
+      start: b.start.toISOString(),
+      end: b.end.toISOString()
+    })));
 
-      console.log('[FREEBUSY] Returning available slots:', result.length);
-      res.json({ ok: true, data: result });
-      
-    } catch (authError) {
-      console.error('[FREEBUSY] Auth error:', authError.message);
-      return res.status(500).json({ ok: false, error: 'Authentication failed', details: authError.message });
-    }
+    // Also check MongoDB Booking collection for bookings on this date for this CIS user
+    // This provides immediate feedback without waiting for calendar sync
+    // IMPORTANT: Exclude cancelled bookings so the slots become available again
+    const dbBookings = await Booking.find({
+      startTime: {
+        $gte: timeMin,
+        $lte: timeMax
+      },
+      'attendees.email': email // Filter by CIS email in attendees
+    });
+    
+    console.log('[FREEBUSY] Found', dbBookings.length, 'bookings in Booking collection for this date and CIS:', email);
+    
+    // Add non-cancelled database bookings to busy list
+    dbBookings.forEach(booking => {
+      busy.push({
+        start: new Date(booking.startTime),
+        end: new Date(booking.endTime)
+      });
+      console.log('[FREEBUSY] Adding DB booking:', {
+        start: booking.startTime,
+        end: booking.endTime,
+        attendees: booking.attendees
+      });
+    });
+    
+    // ALSO check Onboarding collection for this CIS user and date
+    // Parse the date to get year, month, day
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    
+    // Query onboardings, excluding cancelled ones
+    const onboardings = cisId ? await Onboarding.find({
+      date: dateString,
+      cisId: cisId, // Use the cisId from query params
+      status: { $ne: 'cancelled' } // Exclude cancelled onboardings
+    }) : [];
+    
+    console.log('[FREEBUSY] Found', onboardings.length, 'non-cancelled onboardings in database for this date and CIS:', cisId);
+    
+    // Add onboarding slots to busy list
+    onboardings.forEach(onboarding => {
+      if (onboarding.slotWindow) {
+        let startH, endH;
+        
+        // Try to parse underscore format (e.g., "14_17")
+        if (onboarding.slotWindow.includes('_')) {
+          const parts = onboarding.slotWindow.split('_');
+          if (parts.length === 2) {
+            startH = parseInt(parts[0], 10);
+            endH = parseInt(parts[1], 10);
+          }
+        } 
+        // Try to parse human-readable format (e.g., "2 PM - 5 PM" or "10 AM - 1 PM")
+        else if (onboarding.slotWindow.includes('–') || onboarding.slotWindow.includes('-')) {
+          const slotMap = {
+            '10 AM – 1 PM': { start: 10, end: 13 },
+            '10 AM - 1 PM': { start: 10, end: 13 },
+            '2 PM – 5 PM': { start: 14, end: 17 },
+            '2 PM - 5 PM': { start: 14, end: 17 },
+            '6 PM – 7 PM': { start: 18, end: 19 },
+            '6 PM - 7 PM': { start: 18, end: 19 },
+            '10 AM – 12 PM': { start: 10, end: 12 },
+            '10 AM - 12 PM': { start: 10, end: 12 },
+            '1 PM – 2 PM': { start: 13, end: 14 },
+            '1 PM - 2 PM': { start: 13, end: 14 },
+            '3 PM – 5 PM': { start: 15, end: 17 },
+            '3 PM - 5 PM': { start: 15, end: 17 },
+          };
+          const mapped = slotMap[onboarding.slotWindow];
+          if (mapped) {
+            startH = mapped.start;
+            endH = mapped.end;
+          }
+        }
+        
+        if (!isNaN(startH) && !isNaN(endH)) {
+          const slotStart = new Date(year, month - 1, day, startH, 0, 0);
+          const slotEnd = new Date(year, month - 1, day, endH, 0, 0);
+          
+          // Verify the dates are valid
+          if (!isNaN(slotStart.getTime()) && !isNaN(slotEnd.getTime())) {
+            busy.push({
+              start: slotStart,
+              end: slotEnd
+            });
+            console.log('[FREEBUSY] Adding onboarding slot:', {
+              slotWindow: onboarding.slotWindow,
+              start: slotStart.toISOString(),
+              end: slotEnd.toISOString()
+            });
+          } else {
+            console.warn('[FREEBUSY] Invalid date created from slot:', onboarding.slotWindow);
+          }
+        } else {
+          console.warn('[FREEBUSY] Could not parse slot window:', onboarding.slotWindow);
+        }
+      }
+    });
+    
+    console.log('[FREEBUSY] Total busy periods (calendar + database + onboardings):', busy.length);
+    console.log('[FREEBUSY] All busy periods:', busy.map(b => ({
+      start: b.start.toISOString(),
+      end: b.end.toISOString()
+    })));
+
+    // helper: check overlap
+    const overlaps = (a, b) => a.start < b.end && b.start < a.end;
+
+    // Filter candidates that do NOT overlap with any busy interval
+    const available = candidateSlots.filter(slot => {
+      const overlappingWith = busy.filter(b => overlaps(slot, b));
+      const isOverlapping = overlappingWith.length > 0;
+      console.log(`[FREEBUSY] Slot ${slot.label}: ${slot.start.toISOString()} - ${slot.end.toISOString()}, overlapping: ${isOverlapping}`, 
+        isOverlapping ? overlappingWith.map(b => ({ start: b.start.toISOString(), end: b.end.toISOString() })) : 'FREE');
+      return !isOverlapping;
+    });
+
+    // Shape response
+    const result = available.map((s, idx) => ({
+      id: `${idx}_${s.start.toISOString()}`,
+      label: s.label,
+      startTime: s.start.toISOString(),
+      endTime: s.end.toISOString(),
+    }));
+
+    console.log('[FREEBUSY] Returning available slots:', result.length);
+    res.json({ ok: true, data: result });
     
   } catch (e) {
     console.error('[FREEBUSY] General error:', e.message, e.stack);
@@ -1106,6 +1931,202 @@ app.get('/api/freebusy', async (req, res, next) => {
   }
 });
 
+
+// POST /api/cancel-onboarding - Save cancelled onboarding data to Sheet2
+app.post('/api/cancel-onboarding', async (req, res, next) => {
+  try {
+    console.log('[CANCEL-ONBOARDING] Received cancellation data:', req.body);
+    
+    const {
+      booking,
+      cancelledAt,
+      cancellationReason,
+      cancellationRemarks,
+      cancelledBy
+    } = req.body;
+
+    // Validate required fields
+    if (!booking || !cancelledAt || !cancellationReason) {
+      return res.status(400).json({ ok: false, error: 'Missing required fields: booking, cancelledAt, cancellationReason' });
+    }
+
+    // Find CIS user details
+    const cisUser = CIS_USERS.find(cis => cis.id === booking.cisId);
+
+    // Prepare row data for Sheet2 (cancelled onboardings)
+    const rowData = [
+      dayjs().format('YYYY-MM-DD HH:mm:ss'), // Timestamp
+      booking.bookingRef || crypto.randomUUID(), // Booking Reference
+      booking.portfolioManager || 'Unknown', // Portfolio Manager
+      booking.ownerName || booking.name || 'Unknown', // Owner Name
+      booking.phone || booking.ownerPhone || 'Unknown', // Owner Phone
+      booking.email || booking.ownerEmail || 'Unknown', // Owner Email
+      booking.rentOkId || booking.propertyId || 'Unknown', // RentOk ID
+      booking.propertiesCount || booking.noOfProperties || 0, // No. of Properties
+      booking.bedsCount || booking.noOfBeds || 0, // No. of Beds
+      booking.subscriptionType || 'Base', // Subscription Type
+      booking.soldPricePerBed || 0, // Sold Price per Bed
+      booking.subscriptionStartDate || '', // Subscription Start Date
+      booking.monthsBilled || 0, // Months Billed
+      booking.freeMonths || 0, // Free Months
+      booking.totalAmount || 0, // Original Total Amount
+      booking.location || '', // Booking Location
+      booking.mode || 'physical', // Mode
+      cisUser?.name || 'Unknown', // CIS Person
+      cisUser?.email || 'Unknown', // CIS Email
+      booking.date || '', // Original Booking Date
+      booking.slotWindow || '', // Original Time Slot
+      'Cancelled', // Status
+      cancelledAt, // Cancellation Date & Time
+      cancellationReason, // Cancellation Reason
+      cancellationRemarks || '', // Cancellation Remarks
+      cancelledBy || 'Unknown', // Cancelled By
+      booking.createdBy || 'Unknown', // Created By
+      'Cancellation' // Source
+    ];
+
+    // Save to Sheet2
+    try {
+      if (!sheetsClient) {
+        console.error('[CANCEL-ONBOARDING] Sheets client not initialized');
+        return res.status(500).json({ ok: false, error: 'Sheets service not ready' });
+      }
+
+      // Check if Sheet2 exists, create if not
+      const spreadsheet = await sheetsClient.spreadsheets.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID
+      });
+
+      const sheetExists = spreadsheet.data.sheets?.some(sheet => sheet.properties?.title === COMPLETE_ONBOARDING_SHEET_TAB_NAME);
+      
+      if (!sheetExists) {
+        console.log('[CANCEL-ONBOARDING] Creating Sheet2');
+        await sheetsClient.spreadsheets.batchUpdate({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          requestBody: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: COMPLETE_ONBOARDING_SHEET_TAB_NAME
+                }
+              }
+            }]
+          }
+        });
+      }
+
+      // Define headers for Sheet2 (cancelled onboardings)
+      const headers = [
+        'Timestamp', 'Booking Reference', 'Portfolio Manager', 'Owner Name', 'Owner Phone', 'Owner Email',
+        'RentOk ID', 'No. of Properties', 'No. of Beds', 'Subscription Type', 'Sold Price per Bed',
+        'Subscription Start Date', 'Months Billed', 'Free Months', 'Original Total Amount',
+        'Booking Location', 'Mode', 'CIS Person', 'CIS Email', 'Original Booking Date',
+        'Original Time Slot', 'Status', 'Cancellation Date & Time', 'Cancellation Reason',
+        'Cancellation Remarks', 'Cancelled By', 'Created By', 'Source'
+      ];
+
+      // Check if headers exist, add if not
+      const headerRange = `${COMPLETE_ONBOARDING_SHEET_TAB_NAME}!A1:AB1`; // Extended to AB for 28 columns
+      const existingHeaders = await sheetsClient.spreadsheets.values.get({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: headerRange
+      });
+
+      if (!existingHeaders.data.values || existingHeaders.data.values.length === 0) {
+        console.log('[CANCEL-ONBOARDING] Adding headers to Sheet2');
+        await sheetsClient.spreadsheets.values.update({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          range: headerRange,
+          valueInputOption: 'RAW',
+          requestBody: { values: [headers] }
+        });
+      }
+
+      // Append the cancellation data
+      await sheetsClient.spreadsheets.values.append({
+        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        range: `${COMPLETE_ONBOARDING_SHEET_TAB_NAME}!A:AB`, // Extended to AB for 28 columns
+        valueInputOption: 'RAW',
+        requestBody: { values: [rowData] }
+      });
+
+      console.log('[CANCEL-ONBOARDING] Successfully added cancellation data to Sheet2');
+      
+    } catch (sheetsError) {
+      console.error('[CANCEL-ONBOARDING] Sheets error:', sheetsError);
+      return res.status(500).json({ ok: false, error: 'Failed to save cancellation to sheets' });
+    }
+
+    res.json({ ok: true, message: 'Cancellation data saved successfully to Sheet2' });
+  } catch (e) {
+    console.error('POST /api/cancel-onboarding error:', e);
+    next(e);
+  }
+});
+
+// DELETE /api/calendar-event/:eventId - Delete calendar event to free up slot
+app.delete('/api/calendar-event/:eventId', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { cisEmail } = req.body;
+
+    if (!eventId || !cisEmail) {
+      return res.status(400).json({ ok: false, error: 'eventId and cisEmail are required' });
+    }
+
+    // Create dynamic auth for this specific CIS user
+    let authConfig;
+    
+    if (GOOGLE_KEYFILE.startsWith('{')) {
+      const credentials = JSON.parse(GOOGLE_KEYFILE);
+      const tempKeyFile = '/tmp/google-credentials-delete-cal.json';
+      fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+      authConfig = {
+        keyFile: tempKeyFile,
+        scopes: ['https://www.googleapis.com/auth/calendar'],
+        subject: cisEmail,
+      };
+    } else {
+      authConfig = {
+        keyFile: GOOGLE_KEYFILE,
+        scopes: ['https://www.googleapis.com/auth/calendar'],
+        subject: cisEmail,
+      };
+    }
+    
+    const auth = new google.auth.JWT(authConfig);
+    await auth.authorize();
+    
+    const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
+    const calendarId = process.env.CALENDAR_ID || 'primary';
+
+    // Delete the calendar event
+    await dynamicCalendarClient.events.delete({
+      calendarId,
+      eventId,
+      sendUpdates: 'all', // Notify attendees about cancellation
+    });
+
+    console.log('[CALENDAR] Event deleted successfully:', eventId);
+    
+    // Also delete the corresponding Booking record from MongoDB
+    try {
+      const deletedBooking = await Booking.findOneAndDelete({ calendarEventId: eventId });
+      if (deletedBooking) {
+        console.log('[CALENDAR] Booking record deleted from MongoDB:', deletedBooking._id);
+      } else {
+        console.log('[CALENDAR] No booking record found with calendarEventId:', eventId);
+      }
+    } catch (dbError) {
+      console.error('[CALENDAR] Failed to delete booking from MongoDB:', dbError.message);
+    }
+    
+    res.json({ ok: true, message: 'Calendar event and booking record deleted successfully' });
+  } catch (e) {
+    console.error('DELETE /api/calendar-event error:', e);
+    next(e);
+  }
+});
 
 // 13) Start server
 app.listen(PORT, () => {

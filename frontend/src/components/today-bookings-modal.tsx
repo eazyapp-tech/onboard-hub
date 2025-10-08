@@ -245,15 +245,9 @@ export function TodayBookingsModal({
       return true;
     }
     
-    // For SALES users: Show bookings they created
+    // For SALES users: Show ALL bookings (not just their own)
     if (currentUser.role === 'sales') {
-      // Match by createdBy OR portfolioManager (no legacy fallback)
-      const matchByCreatedBy = booking.createdBy === currentUser.name;
-      const matchByPortfolioManager = booking.portfolioManager === currentUser.name;
-      
-      const shouldShow = matchByCreatedBy || matchByPortfolioManager;
-      
-      return shouldShow;
+      return true; // Show all onboardings for sales users
     }
     
     // For CIS users: Show bookings assigned to them
