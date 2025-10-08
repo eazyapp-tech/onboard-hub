@@ -693,8 +693,37 @@ app.get('/api/free-slots', async (req, res, next) => {
     // candidate slots (IST). We'll make them UTC ISO for Calendar API.
     function makeDate(hour, min = 0) {
       const [y, m, d] = date.split('-').map(Number);
-      // local time for India (assume server in IST or you can force with toISOString)
-      return new Date(y, m - 1, d, hour, min, 0, 0);
+      
+      // Convert IST hour to UTC hour
+      // IST is UTC+5:30, so we need to subtract 5:30 from IST to get UTC
+      let utcHour = hour - 5;
+      let utcMinute = min - 30;
+      
+      // Handle minute underflow
+      if (utcMinute < 0) {
+        utcMinute += 60;
+        utcHour -= 1;
+      }
+      
+      // Handle hour underflow (crosses to previous day)
+      let utcDay = d;
+      let utcMonth = m - 1;
+      let utcYear = y;
+      if (utcHour < 0) {
+        utcHour += 24;
+        utcDay -= 1;
+        if (utcDay < 1) {
+          utcMonth -= 1;
+          if (utcMonth < 0) {
+            utcMonth = 11;
+            utcYear -= 1;
+          }
+          // Get last day of previous month
+          utcDay = new Date(utcYear, utcMonth + 1, 0).getDate();
+        }
+      }
+      
+      return new Date(Date.UTC(utcYear, utcMonth, utcDay, utcHour, utcMinute, 0, 0));
     }
 
     // Build candidate windows as per your rules
@@ -716,9 +745,9 @@ app.get('/api/free-slots', async (req, res, next) => {
       ];
     }
 
-    // check conflicts on the CIS calendar using FreeBusy
-    const timeMin = new Date(date + 'T00:00:00');
-    const timeMax = new Date(date + 'T23:59:59');
+    // check conflicts on the CIS calendar using FreeBusy (in IST)
+    const timeMin = makeDate(0, 0); // 00:00 IST
+    const timeMax = makeDate(23, 59); // 23:59 IST
 
     const fb = await calendarClient.freebusy.query({
       requestBody: {
@@ -1718,14 +1747,44 @@ app.get('/api/freebusy', async (req, res, next) => {
       return res.status(500).json({ ok: false, error: 'Google credentials not configured' });
     }
 
-    // Build the slot templates (local time)
-    // helper to create a Date in local TZ
-    const mk = (h, m = 0) => new Date(
-      Number(dateStr.slice(0,4)),
-      Number(dateStr.slice(5,7)) - 1,
-      Number(dateStr.slice(8,10)),
-      h, m, 0, 0
-    );
+    // Build the slot templates (IST timezone)
+    // helper to create a Date in IST (UTC+5:30)
+    const mk = (h, m = 0) => {
+      const year = Number(dateStr.slice(0,4));
+      const month = Number(dateStr.slice(5,7)) - 1;
+      const day = Number(dateStr.slice(8,10));
+      
+      // Convert IST hour to UTC hour
+      // IST is UTC+5:30, so we need to subtract 5:30 from IST to get UTC
+      let utcHour = h - 5;
+      let utcMinute = m - 30;
+      
+      // Handle minute underflow
+      if (utcMinute < 0) {
+        utcMinute += 60;
+        utcHour -= 1;
+      }
+      
+      // Handle hour underflow (crosses to previous day)
+      let utcDay = day;
+      let utcMonth = month;
+      let utcYear = year;
+      if (utcHour < 0) {
+        utcHour += 24;
+        utcDay -= 1;
+        if (utcDay < 1) {
+          utcMonth -= 1;
+          if (utcMonth < 0) {
+            utcMonth = 11;
+            utcYear -= 1;
+          }
+          // Get last day of previous month
+          utcDay = new Date(utcYear, utcMonth + 1, 0).getDate();
+        }
+      }
+      
+      return new Date(Date.UTC(utcYear, utcMonth, utcDay, utcHour, utcMinute, 0, 0));
+    };
 
     let candidateSlots = [];
     
@@ -1757,9 +1816,9 @@ app.get('/api/freebusy', async (req, res, next) => {
 
     console.log('[FREEBUSY] Using global calendar client');
 
-    // Ask Google for busy periods on that date
-    const timeMin = new Date(dateStr + 'T00:00:00');
-    const timeMax = new Date(dateStr + 'T23:59:59');
+    // Ask Google for busy periods on that date (in IST)
+    const timeMin = mk(0, 0); // 00:00 IST
+    const timeMax = mk(23, 59); // 23:59 IST
 
     console.log('[FREEBUSY] Querying freebusy for:', { email, timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() });
 
@@ -1891,8 +1950,9 @@ app.get('/api/freebusy', async (req, res, next) => {
         }
         
         if (!isNaN(startH) && !isNaN(endH)) {
-          const slotStart = new Date(year, month - 1, day, startH, 0, 0);
-          const slotEnd = new Date(year, month - 1, day, endH, 0, 0);
+          // Use the mk helper to create dates in IST
+          const slotStart = mk(startH);
+          const slotEnd = mk(endH);
           
           // Verify the dates are valid
           if (!isNaN(slotStart.getTime()) && !isNaN(slotEnd.getTime())) {
