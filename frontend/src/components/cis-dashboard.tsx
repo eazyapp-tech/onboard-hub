@@ -251,7 +251,7 @@ function OnboardingDetailPanel({
               </>
             )}
             <p><b>Date:</b> {format(new Date(item.date), 'MMM d, yyyy')}</p>
-            <p><b>Slot:</b> {item.slotWindow}</p>
+            <p><b>Slot:</b> {SLOT_WINDOWS.find(s => s.value === item.slotWindow)?.label || item.slotWindow}</p>
             <p><b>Location:</b> {item.bookingLocation.replace('_', ' ')}</p>
             <p><b>Mode:</b> {item.mode}</p>
             {!isEditing && (
@@ -1436,7 +1436,7 @@ function CancelOnboardingModal({
               <p><b>Email:</b> {booking.ownerEmail}</p>
               <p><b>RentOk ID:</b> {booking.rentokId}</p>
               <p><b>Date:</b> {format(new Date(booking.date), 'MMM d, yyyy')}</p>
-              <p><b>Slot:</b> {booking.slotWindow}</p>
+              <p><b>Slot:</b> {SLOT_WINDOWS.find(s => s.value === booking.slotWindow)?.label || booking.slotWindow}</p>
               <p><b>Location:</b> {LOCATION_OPTIONS.find(l => l.value === booking.bookingLocation)?.label || booking.bookingLocation}</p>
             </div>
           </div>
