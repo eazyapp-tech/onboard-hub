@@ -251,7 +251,7 @@ function OnboardingDetailPanel({
               </>
             )}
             <p><b>Date:</b> {format(new Date(item.date), 'MMM d, yyyy')}</p>
-            <p><b>Slot:</b> {item.slotWindow === '10_13' ? '10 AM – 1 PM' : item.slotWindow === '14_17' ? '2 PM – 5 PM' : '6 PM – 7 PM'}</p>
+            <p><b>Slot:</b> {item.slotWindow}</p>
             <p><b>Location:</b> {item.bookingLocation.replace('_', ' ')}</p>
             <p><b>Mode:</b> {item.mode}</p>
             {!isEditing && (
@@ -1021,7 +1021,9 @@ export function CisDashboard() {
             </thead>
             <tbody>
               {filteredBookings.map((booking, index) => {
-              const slot = SLOT_WINDOWS.find(s => s.value === booking.slotWindow);
+              // Handle both underscore format (10_13) and human-readable format (10 AM - 1 PM)
+              const slot = SLOT_WINDOWS.find(s => s.value === booking.slotWindow) || 
+                           SLOT_WINDOWS.find(s => s.label === booking.slotWindow);
                 const getStatusColor = (status: OnboardingStatus) => {
                   switch (status) {
                     case 'Onboarding Started': return 'bg-yellow-100 text-yellow-700';

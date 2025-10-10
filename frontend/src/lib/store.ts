@@ -204,7 +204,19 @@ export const useAppStore = create<AppState>()(
                 bookingLocation: (item.bookingLocation as 'north_delhi' | 'south_delhi' | 'noida' | 'gurgaon' | 'others') || 'north_delhi',
                 mode: (item.mode as 'virtual' | 'physical') || 'physical',
                 cisId: item.cisId,
-                slotWindow: item.slotWindow || '10_13',
+                slotWindow: (() => {
+                  // Convert human-readable format to underscore format
+                  const slotWindow = item.slotWindow || '10_13';
+                  if (slotWindow.includes('AM') || slotWindow.includes('PM')) {
+                    switch (slotWindow) {
+                      case '10 AM - 1 PM': return '10_13';
+                      case '2 PM - 5 PM': return '14_17';
+                      case '6 PM - 7 PM': return '18_19';
+                      default: return slotWindow;
+                    }
+                  }
+                  return slotWindow;
+                })(),
                 date: item.date || (item.moveInDate ? new Date(item.moveInDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
                 status: item.status || 'scheduled',
                 onboardingStatus: item.status || 'Onboarding Started',
