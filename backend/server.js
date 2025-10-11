@@ -17,6 +17,7 @@ const { z } = require('zod');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 
 // 3) Basic app setup
 const app = express();
@@ -213,7 +214,7 @@ const CALENDAR_ID = process.env.CALENDAR_ID;
 
 // CIS Users data
 const CIS_USERS = [
-  { id: 'manish-arora', name: 'Manish Arora', email: 'manish@eazyapp.tech' },
+  { id: 'manish-arora', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
   { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
   { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash@eazyapp.tech' },
   { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti@eazyapp.tech' },
@@ -222,6 +223,24 @@ const CIS_USERS = [
 ];
 
 let sheetsClient, calendarClient;
+
+// Email configuration
+const EMAIL_CONFIG = {
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER, // Your Gmail address
+    pass: process.env.EMAIL_PASS  // Your Gmail app password
+  }
+};
+
+// Create email transporter
+let emailTransporter;
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  emailTransporter = nodemailer.createTransporter(EMAIL_CONFIG);
+  console.log('[EMAIL] Gmail SMTP configured');
+} else {
+  console.warn('[EMAIL] Email credentials not configured - emails will not be sent');
+}
 
 // ---- Google (Sheets + Calendar) with Domain-Wide Delegation ----
 
@@ -273,6 +292,127 @@ async function initGoogle() {
   }
 }
 initGoogle();
+
+// Email helper functions
+async function sendEmail(to, subject, html) {
+  if (!emailTransporter) {
+    console.warn('[EMAIL] Email transporter not configured, skipping email to:', to);
+    return false;
+  }
+
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: to,
+      subject: subject,
+      html: html
+    };
+
+    const result = await emailTransporter.sendMail(mailOptions);
+    console.log('[EMAIL] Email sent successfully to:', to, 'Message ID:', result.messageId);
+    return true;
+  } catch (error) {
+    console.error('[EMAIL] Failed to send email to:', to, 'Error:', error.message);
+    return false;
+  }
+}
+
+function formatSlotWindow(slotWindow) {
+  switch (slotWindow) {
+    case '10_13': return '10 AM - 1 PM';
+    case '14_17': return '2 PM - 5 PM';
+    case '18_19': return '6 PM - 7 PM';
+    default: return slotWindow;
+  }
+}
+
+function generatePortfolioManagerEmail(bookingData) {
+  const cisUser = CIS_USERS.find(cis => cis.id === bookingData.cisId);
+  const formattedSlot = formatSlotWindow(bookingData.slotWindow);
+  
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">New Onboarding Booking Created</h2>
+      
+      <p>Hello ${bookingData.portfolioManager},</p>
+      
+      <p>A new onboarding has been scheduled for your client. Here are the details:</p>
+      
+      <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #1e40af; margin-top: 0;">Booking Details</h3>
+        <p><strong>Owner Name:</strong> ${bookingData.ownerName}</p>
+        <p><strong>Owner Email:</strong> ${bookingData.ownerEmail}</p>
+        <p><strong>Owner Phone:</strong> ${bookingData.ownerPhone}</p>
+        <p><strong>RentOk ID:</strong> ${bookingData.rentokId}</p>
+        <p><strong>Properties:</strong> ${bookingData.noOfProperties}</p>
+        <p><strong>Beds:</strong> ${bookingData.noOfBeds}</p>
+        <p><strong>Subscription:</strong> ${bookingData.subscriptionType}</p>
+        <p><strong>Date:</strong> ${bookingData.date}</p>
+        <p><strong>Time Slot:</strong> ${formattedSlot}</p>
+        <p><strong>Location:</strong> ${bookingData.bookingLocation.replace('_', ' ')}</p>
+        <p><strong>Mode:</strong> ${bookingData.mode}</p>
+        <p><strong>Onboarding Person:</strong> ${cisUser?.name || 'TBD'}</p>
+      </div>
+      
+      <p>Please ensure all necessary preparations are made for the onboarding session.</p>
+      
+      <p>Best regards,<br>RentOk Team</p>
+    </div>
+  `;
+}
+
+function generateOwnerEmail(bookingData) {
+  const cisUser = CIS_USERS.find(cis => cis.id === bookingData.cisId);
+  const formattedSlot = formatSlotWindow(bookingData.slotWindow);
+  
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #2563eb;">Welcome to RentOk! Your Onboarding Details Inside 🚀</h2>
+      
+      <p>Dear ${bookingData.ownerName},</p>
+      
+      <p>Welcome to RentOk! We're excited to have you on board. To ensure a smooth and efficient onboarding experience, please find all the details you need below to get started:</p>
+      
+      <h3 style="color: #1e40af;">Step 1: Download the RentOk App</h3>
+      <p>Access RentOk on your mobile device for quick and easy property management.</p>
+      <ul>
+        <li><a href="https://play.google.com/store/apps/details?id=net.eazypg.eazypgmanager" style="color: #2563eb;">Playstore</a></li>
+        <li><a href="https://apps.apple.com/in/app/rentok-manager/id6553993616" style="color: #2563eb;">Appstore</a></li>
+      </ul>
+      
+      <h3 style="color: #1e40af;">Step 2: Add Your Property</h3>
+      <p>Watch this helpful video to learn how to add your property to RentOk:</p>
+      <p><a href="https://youtu.be/gMEb6L9OEDs?si=xAZo_0jFdkgN_8TM" style="color: #2563eb;">Property Addition Guide</a></p>
+      
+      <h3 style="color: #1e40af;">Step 3: Prepare Key Property Details</h3>
+      <p>To make the onboarding process smoother, please have the following details ready for each of your properties:</p>
+      <ol>
+        <li>Tenant Name</li>
+        <li>Phone Number</li>
+        <li>Rent Amount</li>
+        <li>Security Deposit</li>
+        <li>Room Number</li>
+        <li>Tenant Sharing (if applicable)</li>
+      </ol>
+      
+      <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #1e40af; margin-top: 0;">Your Onboarding Details:</h3>
+        <p><strong>Onboarding Scheduled Time Slot:</strong> ${formattedSlot}</p>
+        <p><strong>Onboarding Person:</strong> ${cisUser?.name || 'TBD'}</p>
+        <p><strong>Portfolio Manager Name:</strong> ${bookingData.portfolioManager}</p>
+        <p><strong>Number of Properties to Onboard:</strong> ${bookingData.noOfProperties}</p>
+        <p><strong>Number of Beds to Onboard:</strong> ${bookingData.noOfBeds}</p>
+        <p><strong>Date:</strong> ${bookingData.date}</p>
+        <p><strong>Location:</strong> ${bookingData.bookingLocation.replace('_', ' ')}</p>
+        <p><strong>Mode:</strong> ${bookingData.mode}</p>
+      </div>
+      
+      <p>We're excited to help you get started with RentOk! If you have any questions or need assistance, feel free to reach out. We're here to make property management easier and more efficient for you.</p>
+      
+      <p>Welcome aboard,<br>The RentOk Team</p>
+    </div>
+  `;
+}
 
 // 9) Validation
 const onboardingZ = z.object({
@@ -494,6 +634,47 @@ app.post('/api/onboarding', async (req, res, next) => {
       await doc.save();
     } catch (e) {
       console.error('[Sheets] Append failed:', e.message);
+    }
+
+    // Send emails after successful creation
+    try {
+      const bookingData = {
+        portfolioManager: parsed.portfolioManager,
+        ownerName: doc.name,
+        ownerEmail: doc.email,
+        ownerPhone: doc.phone,
+        rentokId: doc.propertyId,
+        noOfProperties: parsed.noOfProperties,
+        noOfBeds: parsed.noOfBeds,
+        subscriptionType: parsed.subscriptionType,
+        date: parsed.date,
+        slotWindow: parsed.slotWindow,
+        bookingLocation: parsed.bookingLocation,
+        mode: parsed.mode,
+        cisId: parsed.cisId
+      };
+
+      // Send email to portfolio manager
+      if (parsed.portfolioManager && parsed.portfolioManager !== 'System') {
+        const portfolioManagerEmail = `${parsed.portfolioManager.toLowerCase().replace(/\s+/g, '.')}@eazyapp.tech`;
+        await sendEmail(
+          portfolioManagerEmail,
+          'New Onboarding Booking Created - RentOk',
+          generatePortfolioManagerEmail(bookingData)
+        );
+      }
+
+      // Send email to owner
+      if (doc.email) {
+        await sendEmail(
+          doc.email,
+          'Welcome to RentOk! Your Onboarding Details Inside 🚀',
+          generateOwnerEmail(bookingData)
+        );
+      }
+    } catch (emailError) {
+      console.error('[EMAIL] Failed to send onboarding emails:', emailError.message);
+      // Don't fail the request if emails fail
     }
 
     res.status(201).json({ ok: true, data: doc });
