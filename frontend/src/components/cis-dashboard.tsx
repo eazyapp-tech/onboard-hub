@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Filter, Play, Clock, MapPin, Phone, User, CheckCircle, Download, RotateCcw, X } from 'lucide-react';
+import { Calendar, Filter, Play, Clock, MapPin, Phone, User, CheckCircle, Download, RotateCcw, X, Eye } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { CIS_USERS, SLOT_WINDOWS, LOCATION_OPTIONS, OnboardingStatus, StatusHistoryItem } from '@/types';
 import { format } from 'date-fns';
@@ -112,17 +112,77 @@ function OnboardingDetailPanel({
     setIsEditing(false);
   };
 
-  const handleDownloadFile = (file: File, fileName: string) => {
-    // Create a URL for the file and trigger download
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success(`Downloading ${fileName}`);
+  // Handle viewing/downloading files from MongoDB
+  const handleViewFile = async (file: any) => {
+    try {
+      // Support both new format (fileId) and legacy format (publicUrl)
+      let fileUrl: string;
+      if (file.fileId) {
+        fileUrl = `${API_BASE_URL}/api/file/${file.fileId}`;
+      } else if (file.publicUrl) {
+        // Handle legacy URLs - if it's already a full URL or starts with /api/file, use as is
+        if (file.publicUrl.startsWith('http')) {
+          fileUrl = file.publicUrl;
+        } else if (file.publicUrl.startsWith('/api/file')) {
+          fileUrl = `${API_BASE_URL}${file.publicUrl}`;
+        } else {
+          // Legacy /uploads/ URL
+          fileUrl = `${API_BASE_URL}${file.publicUrl}`;
+        }
+      } else {
+        toast.error('File URL not available');
+        return;
+      }
+
+      // Open in new tab for viewing
+      window.open(fileUrl, '_blank');
+      toast.success(`Opening ${file.fileName || 'file'}...`);
+    } catch (error) {
+      console.error('Error viewing file:', error);
+      toast.error('Failed to open file');
+    }
+  };
+
+  const handleDownloadFile = async (file: any) => {
+    try {
+      // Support both new format (fileId) and legacy format (publicUrl)
+      let fileUrl: string;
+      if (file.fileId) {
+        fileUrl = `${API_BASE_URL}/api/file/${file.fileId}`;
+      } else if (file.publicUrl) {
+        // Handle legacy URLs
+        if (file.publicUrl.startsWith('http')) {
+          fileUrl = file.publicUrl;
+        } else if (file.publicUrl.startsWith('/api/file')) {
+          fileUrl = `${API_BASE_URL}${file.publicUrl}`;
+        } else {
+          fileUrl = `${API_BASE_URL}${file.publicUrl}`;
+        }
+      } else {
+        toast.error('File URL not available');
+        return;
+      }
+
+      // Fetch file and trigger download
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch file');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.fileName || file.name || 'file.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${file.fileName || 'file'}`);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast.error('Failed to download file');
+    }
   };
 
   return (
@@ -317,16 +377,27 @@ function OnboardingDetailPanel({
                               <p className="font-medium text-xs">Checklist ({item.attachmentUrls.checklist.length} file(s))</p>
                             </div>
                             <div className="space-y-1">
-                              {item.attachmentUrls.checklist.map((file: File, idx: number) => (
-                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded">
-                                  <span className="truncate flex-1">{file.name}</span>
-                                  <button
-                                    onClick={() => handleDownloadFile(file, file.name)}
-                                    className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                                    title="Download file"
-                                  >
-                                    <Download className="w-3 h-3 text-blue-600" />
-                                  </button>
+                              {item.attachmentUrls.checklist.map((file: any, idx: number) => (
+                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded gap-2">
+                                  <span className="truncate flex-1" title={file.fileName || file.name}>
+                                    {file.fileName || file.name || 'Unknown file'}
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleViewFile(file)}
+                                      className="p-1 hover:bg-blue-100 rounded transition-colors"
+                                      title="View file"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-blue-600" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDownloadFile(file)}
+                                      className="p-1 hover:bg-green-100 rounded transition-colors"
+                                      title="Download file"
+                                    >
+                                      <Download className="w-3.5 h-3.5 text-green-600" />
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -338,16 +409,27 @@ function OnboardingDetailPanel({
                               <p className="font-medium text-xs">Reviews ({item.attachmentUrls.reviews.length} file(s))</p>
                             </div>
                             <div className="space-y-1">
-                              {item.attachmentUrls.reviews.map((file: File, idx: number) => (
-                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded">
-                                  <span className="truncate flex-1">{file.name}</span>
-                                  <button
-                                    onClick={() => handleDownloadFile(file, file.name)}
-                                    className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                                    title="Download file"
-                                  >
-                                    <Download className="w-3 h-3 text-blue-600" />
-                                  </button>
+                              {item.attachmentUrls.reviews.map((file: any, idx: number) => (
+                                <div key={idx} className="flex items-center justify-between text-xs bg-white/40 p-1.5 rounded gap-2">
+                                  <span className="truncate flex-1" title={file.fileName || file.name}>
+                                    {file.fileName || file.name || 'Unknown file'}
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleViewFile(file)}
+                                      className="p-1 hover:bg-blue-100 rounded transition-colors"
+                                      title="View file"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-blue-600" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDownloadFile(file)}
+                                      className="p-1 hover:bg-green-100 rounded transition-colors"
+                                      title="Download file"
+                                    >
+                                      <Download className="w-3.5 h-3.5 text-green-600" />
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -723,15 +805,65 @@ export function CisDashboard() {
     
     if (!selected) return;
     
-    // Extract data from payload
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+    
+    // Step 1: Upload files first if they exist (File objects)
+    let uploadedAttachments = payload.attachments || { checklist: [], reviews: [] };
+    
+    const hasFileObjects = 
+      (payload.attachments?.checklist?.some((f: any) => f instanceof File)) ||
+       (payload.attachments?.reviews?.some((f: any) => f instanceof File));
+    
+    if (hasFileObjects) {
+      try {
+        console.log('[CIS-DASHBOARD] Uploading files first...');
+        
+        const formData = new FormData();
+        
+        // Add checklist files
+        if (payload.attachments?.checklist) {
+          payload.attachments.checklist.forEach((file: File) => {
+            formData.append('checklist', file);
+          });
+        }
+        
+        // Add reviews files
+        if (payload.attachments?.reviews) {
+          payload.attachments.reviews.forEach((file: File) => {
+            formData.append('reviews', file);
+          });
+        }
+        
+        // Upload files
+        const uploadResponse = await fetch(`${API_BASE_URL}/api/upload-onboarding-files`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        const uploadData = await uploadResponse.json();
+        
+        if (!uploadResponse.ok || !uploadData?.ok) {
+          console.error('[CIS-DASHBOARD] File upload failed:', uploadData);
+          toast.error('Failed to upload files. Continuing without attachments.');
+        } else {
+          console.log('[CIS-DASHBOARD] Files uploaded successfully:', uploadData);
+          uploadedAttachments = uploadData.attachments || { checklist: [], reviews: [] };
+        }
+      } catch (error) {
+        console.error('[CIS-DASHBOARD] File upload error:', error);
+        toast.error('Failed to upload files. Continuing without attachments.');
+      }
+    }
+    
+    // Extract data from payload (now with uploaded file URLs)
     const completionData = {
       actualOnboardingDate: format(new Date(payload.completedAt), 'yyyy-MM-dd'),
       actualOnboardingTime: format(new Date(payload.completedAt), 'HH:mm'),
       notes: payload.notes || '',
       onboardingAddons: payload.addons || [],
       attachmentUrls: {
-        checklist: payload.attachments?.checklist || [],
-        reviews: payload.attachments?.reviews || []
+        checklist: uploadedAttachments.checklist || [],
+        reviews: uploadedAttachments.reviews || []
       }
     };
     
@@ -751,11 +883,10 @@ export function CisDashboard() {
     
     // Save complete onboarding data to Sheet2
     try {
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-      
-      // Prepare complete onboarding payload for Sheet2
+      // Prepare complete onboarding payload for Sheet2 (with uploaded file URLs)
       const completeOnboardingPayload = {
         booking: {
+          id: selected.id,
           bookingRef: selected.bookingRef,
           portfolioManager: selected.portfolioManager,
           ownerName: selected.ownerName,
@@ -778,7 +909,7 @@ export function CisDashboard() {
           createdBy: selected.createdBy
         },
         completedAt: payload.completedAt,
-        attachments: payload.attachments,
+        attachments: uploadedAttachments, // Use uploaded file URLs instead of File objects
         addons: payload.addons,
         notes: payload.notes,
         draft: payload.draft
