@@ -27,7 +27,10 @@ const TIMEZONE = process.env.TIMEZONE || 'Asia/Kolkata';
 // simple local uploads (dev)
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
-const upload = multer({ dest: uploadsDir });
+const upload = multer({ dest: uploadsDir }); // Disk storage for legacy endpoints
+
+// Memory storage for MongoDB Buffer storage (onboarding files)
+const uploadMemory = multer({ storage: multer.memoryStorage() });
 
 // 4) Middlewares
 app.use(helmet());
@@ -36,6 +39,8 @@ app.use(helmet());
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
   'https://start.rentok.com',
   'https://frontend-frdf20knw-nimitjns-projects.vercel.app',
   'https://onboard-hun-backend-1.onrender.com'
@@ -165,8 +170,16 @@ const OnboardingSchema = new mongoose.Schema(
       unitPrice: Number
     }],
     attachmentUrls: {
-      checklist: [{ fileName: String, publicUrl: String }],
-      reviews: [{ fileName: String, publicUrl: String }]
+      checklist: [{ 
+        fileId: String, // MongoDB File document ID
+        fileName: String, 
+        publicUrl: String // Download URL: /api/file/{fileId}
+      }],
+      reviews: [{ 
+        fileId: String, // MongoDB File document ID
+        fileName: String, 
+        publicUrl: String // Download URL: /api/file/{fileId}
+      }]
     },
     // Cancellation data
     cancellationReason: String,
@@ -196,8 +209,21 @@ const BookingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// File schema for storing PDFs as Buffer in MongoDB
+const FileSchema = new mongoose.Schema(
+  {
+    fileName: { type: String, required: true },
+    data: { type: Buffer, required: true }, // Binary data (PDF)
+    contentType: { type: String, required: true }, // e.g., "application/pdf"
+    fileSize: Number, // Size in bytes
+    uploadedAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
+
 const Onboarding = mongoose.model('Onboarding', OnboardingSchema);
 const Booking = mongoose.model('Booking', BookingSchema);
+const File = mongoose.model('File', FileSchema);
 
 // 8) Google clients (Sheets + Calendar)
 const GOOGLE_KEYFILE =
@@ -912,6 +938,107 @@ app.post('/api/onboarding/:id/attachment', upload.single('photo'), async (req, r
   }
 });
 
+// POST /api/upload-onboarding-files - Upload multiple files for onboarding completion
+// Accepts: checklist[] and reviews[] as file arrays via FormData
+// Stores files as Buffer in MongoDB instead of filesystem
+app.post('/api/upload-onboarding-files', uploadMemory.fields([
+  { name: 'checklist', maxCount: 10 },
+  { name: 'reviews', maxCount: 10 }
+]), async (req, res, next) => {
+  try {
+    console.log('[UPLOAD-ONBOARDING-FILES] Received file upload request');
+    
+    const checklistFiles = req.files?.checklist || [];
+    const reviewsFiles = req.files?.reviews || [];
+    
+    if (checklistFiles.length === 0 && reviewsFiles.length === 0) {
+      return res.status(400).json({ ok: false, error: 'No files provided' });
+    }
+
+    // Store checklist files in MongoDB as Buffer
+    const checklistFilesData = await Promise.all(
+      checklistFiles.map(async (file) => {
+        const fileDoc = new File({
+          fileName: file.originalname,
+          data: file.buffer, // Store binary data as Buffer
+          contentType: file.mimetype || 'application/pdf',
+          fileSize: file.size
+        });
+        await fileDoc.save();
+        return {
+          fileId: fileDoc._id.toString(),
+          fileName: fileDoc.fileName,
+          publicUrl: `/api/file/${fileDoc._id}` // Use MongoDB ID for download
+        };
+      })
+    );
+
+    // Store reviews files in MongoDB as Buffer
+    const reviewsFilesData = await Promise.all(
+      reviewsFiles.map(async (file) => {
+        const fileDoc = new File({
+          fileName: file.originalname,
+          data: file.buffer, // Store binary data as Buffer
+          contentType: file.mimetype || 'application/pdf',
+          fileSize: file.size
+        });
+        await fileDoc.save();
+        return {
+          fileId: fileDoc._id.toString(),
+          fileName: fileDoc.fileName,
+          publicUrl: `/api/file/${fileDoc._id}` // Use MongoDB ID for download
+        };
+      })
+    );
+
+    console.log('[UPLOAD-ONBOARDING-FILES] Files stored in MongoDB:', {
+      checklist: checklistFilesData.length,
+      reviews: reviewsFilesData.length
+    });
+
+    res.json({
+      ok: true,
+      attachments: {
+        checklist: checklistFilesData,
+        reviews: reviewsFilesData
+      }
+    });
+  } catch (e) {
+    console.error('[UPLOAD-ONBOARDING-FILES] Error:', e);
+    next(e);
+  }
+});
+
+// GET /api/file/:id - Download file from MongoDB by ID
+app.get('/api/file/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ ok: false, error: 'Invalid file ID' });
+    }
+
+    const file = await File.findById(id);
+    
+    if (!file) {
+      return res.status(404).json({ ok: false, error: 'File not found' });
+    }
+
+    // Set appropriate headers for file download
+    res.set({
+      'Content-Type': file.contentType,
+      'Content-Disposition': `inline; filename="${file.fileName}"`,
+      'Content-Length': file.data.length
+    });
+
+    // Send the file buffer
+    res.send(file.data);
+  } catch (e) {
+    console.error('[GET-FILE] Error:', e);
+    next(e);
+  }
+});
+
 // POST /api/test-sales-sheet - Test endpoint to send dummy data to Sheet3
 app.post('/api/test-sales-sheet', async (req, res, next) => {
   try {
@@ -1462,6 +1589,7 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
     // Save to Sheet2
     try {
       if (!sheetsClient) {
+        console.log('sheetsClient', sheetsClient);
         console.error('[COMPLETE-ONBOARDING] Sheets client not initialized');
         return res.status(500).json({ ok: false, error: 'Sheets service not ready' });
       }
@@ -1540,26 +1668,54 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
 
     // Also save completion data to MongoDB
     try {
+      // Process attachment URLs - support both object format {fileId, fileName, publicUrl} and any other format
+      const processAttachmentFiles = (files) => {
+        if (!files || !Array.isArray(files)) return [];
+        return files
+          .filter(file => file && typeof file === 'object' && file.publicUrl)
+          .map(file => ({
+            fileId: file.fileId || file._id || null, // MongoDB File document ID
+            fileName: file.fileName || file.originalname || 'unknown',
+            publicUrl: file.publicUrl // Download URL: /api/file/{fileId}
+          }));
+      };
+
+      const checklistUrls = processAttachmentFiles(checklistFiles);
+      const reviewsUrls = processAttachmentFiles(reviewsFiles);
+
+      console.log('[COMPLETE-ONBOARDING] Processing attachments for MongoDB:', {
+        checklistCount: checklistUrls.length,
+        reviewsCount: reviewsUrls.length,
+        checklist: checklistUrls,
+        reviews: reviewsUrls
+      });
+
       const completionData = {
         status: 'completed',
         actualOnboardingDate: completedAt.split('T')[0], // Extract date
         actualOnboardingTime: completedAt.split('T')[1]?.split('.')[0] || '', // Extract time
         onboardingAddons: addons || [],
         attachmentUrls: {
-          checklist: checklistFiles.filter(file => typeof file === 'object').map(file => ({
-            fileName: file.fileName,
-            publicUrl: file.publicUrl
-          })),
-          reviews: reviewsFiles.filter(file => typeof file === 'object').map(file => ({
-            fileName: file.fileName,
-            publicUrl: file.publicUrl
-          }))
+          checklist: checklistUrls,
+          reviews: reviewsUrls
         },
         notes: notes || booking.notes || ''
       };
 
-      await Onboarding.findByIdAndUpdate(booking.id, completionData, { new: true });
-      console.log('[COMPLETE-ONBOARDING] Updated MongoDB with completion data for:', booking.id);
+      if (booking.id) {
+        const updated = await Onboarding.findByIdAndUpdate(booking.id, completionData, { new: true });
+        if (updated) {
+          console.log('[COMPLETE-ONBOARDING] Updated MongoDB with completion data for:', booking.id);
+          console.log('[COMPLETE-ONBOARDING] MongoDB attachment URLs stored:', {
+            checklist: updated.attachmentUrls?.checklist?.length || 0,
+            reviews: updated.attachmentUrls?.reviews?.length || 0
+          });
+        } else {
+          console.warn('[COMPLETE-ONBOARDING] MongoDB document not found with ID:', booking.id);
+        }
+      } else {
+        console.warn('[COMPLETE-ONBOARDING] No booking.id provided, skipping MongoDB update');
+      }
     } catch (mongoError) {
       console.error('[COMPLETE-ONBOARDING] MongoDB update error:', mongoError);
       console.error('[COMPLETE-ONBOARDING] MongoDB error details:', mongoError.message, mongoError.stack);
