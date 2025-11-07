@@ -50,6 +50,7 @@ export function BookingForm({
   const [selectedAddons, setSelectedAddons] = useState<Array<{
     type: string;
     price: number;
+    quantity: number;
     notes: string;
   }>>([]);
   const [confirmed, setConfirmed] = useState(false);
@@ -109,7 +110,12 @@ export function BookingForm({
 
     // turn selected add-ons into a readable string (optional)
     const addonsSummary = selectedAddons.length
-      ? selectedAddons.map(a => `${a.type || 'custom'}: ₹${a.price}${a.notes ? ` (${a.notes})` : ''}`).join('; ')
+      ? selectedAddons.map(a => {
+          const qty = Number.isFinite(a.quantity) && a.quantity > 0 ? a.quantity : 1;
+          const unitPrice = Number.isFinite(a.price) ? a.price : 0;
+          const lineTotal = unitPrice * qty;
+          return `${a.type || 'custom'}: ₹${unitPrice} × ${qty} = ₹${lineTotal}${a.notes ? ` (${a.notes})` : ''}`;
+        }).join('; ')
       : '';
 
     // Format slot window for display
@@ -400,7 +406,8 @@ export function BookingForm({
         ...(formData.ownerEmail ? [{ email: formData.ownerEmail, displayName: formData.ownerName }] : []),
         ...(selectedCisEmail ? [{ email: selectedCisEmail, displayName: 'CIS' }] : []),
       ],
-      cisEmail: selectedCisEmail, // <— IMPORTANT for backend impersonation
+      cisEmail: selectedCisEmail,
+      addons: selectedAddons,
     };
   };
   
@@ -439,7 +446,7 @@ export function BookingForm({
     id: bookingId,
     bookingRef,
     ...formData,
-    slotWindow: formData.slotWindow, // now just a string like "10_12" or "14_17"
+    slotWindow: formData.slotWindow,
     selectedSlotId,
     cisId: formData.cisId,
     status: 'scheduled' as const,
@@ -447,7 +454,8 @@ export function BookingForm({
     createdBy: currentUser?.name || 'current-user',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    totalAmount
+    totalAmount,
+    addons: selectedAddons,
   };
   
     // 1) your existing local state writes (kept exactly as-is)
@@ -562,7 +570,8 @@ try {
     setSelectedAddons([...selectedAddons, {
       type: '',
       price: 0,
-      notes: ''
+      quantity: 1,
+      notes: '',
     }]);
   };
   const removeAddon = (index: number) => {
@@ -570,9 +579,18 @@ try {
   };
   const updateAddon = (index: number, field: string, value: any) => {
     const updated = [...selectedAddons];
+    let newValue = value;
+    if (field === 'price') {
+      newValue = parseFloat(value);
+      if (!Number.isFinite(newValue)) newValue = 0;
+    }
+    if (field === 'quantity') {
+      const parsed = parseInt(value, 10);
+      newValue = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    }
     updated[index] = {
       ...updated[index],
-      [field]: value
+      [field]: newValue,
     };
     setSelectedAddons(updated);
   };
@@ -744,27 +762,60 @@ try {
               </span></motion.button>
             </div>
             
-            {selectedAddons.map((addon, index) => <motion.div key={index} initial={{
-            opacity: 0,
-            y: 10
-          }} animate={{
-            opacity: 1,
-            y: 0
-          }} className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 glass rounded-lg" data-unique-id="f09a7db1-26b2-40b4-b4e4-6e3007b41b18" data-file-name="components/booking-form.tsx">
-                <select value={addon.type} onChange={e => updateAddon(index, 'type', e.target.value)} className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent" data-unique-id="56864960-f661-4e03-9f27-4baecaeefa87" data-file-name="components/booking-form.tsx" data-dynamic-text="true">
-                  <option value="" data-unique-id="4d749101-696b-4c43-bc20-a5d09e849255" data-file-name="components/booking-form.tsx"><span className="editable-text" data-unique-id="3ca24e1d-351a-4c20-976b-30fc127e4171" data-file-name="components/booking-form.tsx">Select Add-on</span></option>
-                  {ADDON_OPTIONS.map(option => <option key={option.value} value={option.value} data-unique-id="db37bab7-a051-4940-a27d-f6ed811b6c31" data-file-name="components/booking-form.tsx" data-dynamic-text="true">{option.label}</option>)}
+            {selectedAddons.map((addon, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 glass rounded-lg"
+              >
+                <select
+                  value={addon.type}
+                  onChange={e => updateAddon(index, 'type', e.target.value)}
+                  className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select Add-on</option>
+                  {ADDON_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
-                <input type="number" placeholder="Price" min="0" step="0.01" value={addon.price} onChange={e => updateAddon(index, 'price', parseFloat(e.target.value))} className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent" data-unique-id="23d7b172-c124-4655-8659-5199c4ee0b96" data-file-name="components/booking-form.tsx" />
-                <input type="text" placeholder="Notes (optional)" value={addon.notes} onChange={e => updateAddon(index, 'notes', e.target.value)} className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent" data-unique-id="cab4c432-d773-4317-b872-b32240275c15" data-file-name="components/booking-form.tsx" />
-                <motion.button type="button" whileHover={{
-              scale: 1.05
-            }} whileTap={{
-              scale: 0.95
-            }} onClick={() => removeAddon(index)} className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors" data-unique-id="0544e3e3-e167-4238-9155-03d3d630f635" data-file-name="components/booking-form.tsx">
-                  <Trash2 className="w-4 h-4" data-unique-id="04cd322a-8e81-42f2-a73e-110314d2f4c9" data-file-name="components/booking-form.tsx" data-dynamic-text="true" />
+                <input
+                  type="number"
+                  placeholder="Price"
+                  min="0"
+                  step="0.01"
+                  value={addon.price}
+                  onChange={e => updateAddon(index, 'price', e.target.value)}
+                  className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <input
+                  type="number"
+                  placeholder="Quantity"
+                  min="1"
+                  value={addon.quantity}
+                  onChange={e => updateAddon(index, 'quantity', e.target.value)}
+                  className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <input
+                  type="text"
+                  placeholder="Notes (optional)"
+                  value={addon.notes}
+                  onChange={e => updateAddon(index, 'notes', e.target.value)}
+                  className="p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => removeAddon(index)}
+                  className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </motion.button>
-              </motion.div>)}
+              </motion.div>
+            ))}
           </motion.section>
 
           {/* Location & Mode */}

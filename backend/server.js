@@ -233,9 +233,27 @@ const DEALS_SHEET_ID = process.env.DEALS_SHEET_ID;
 const BOOKINGS_SHEET_ID = process.env.BOOKINGS_SHEET_ID;
 const SALES_BOOKINGS_SHEET_ID = '1vu_cSTYh8imEPCWe1Pdcmz_Dgsb6uVCtAPmotoxPXUk'; // Sales bookings sheet
 const SHEET_TAB_NAME = process.env.SHEET_TAB_NAME || 'Sheet1';
+const CLEAN_ONBOARDING_SHEET_TAB_NAME = 'Sheet4'; // Clean onboarding data in Sheet4
 const SALES_SHEET_TAB_NAME = 'Sheet3'; // Sales bookings in Sheet3
 const COMPLETE_ONBOARDING_SHEET_TAB_NAME = 'Sheet2'; // Complete onboarding data in Sheet2
 const CALENDAR_ID = process.env.CALENDAR_ID;
+const CLEAN_ONBOARDING_HEADERS = [
+  'Booking ID',
+  'Portfolio Manager',
+  'Owner Name',
+  'Owner Phone',
+  'Owner Email',
+  'RentOk ID',
+  'No. of Properties',
+  'No. of Beds',
+  'Subscription Type',
+  'Sold Price per Bed',
+  'Subscription Start Date',
+  'Months Billed',
+  'Free Months',
+  'Total Amount',
+  'Add-ons Sold (Price, Quantity, Notes, Total Amount)'
+];
 
 // CIS Users data
 const CIS_USERS = [
@@ -1211,14 +1229,10 @@ app.post('/api/sales-booking', async (req, res, next) => {
     const bookingData = req.body;
     console.log('[SALES-BOOKING] Received booking data:', bookingData);
 
-    // First, ensure Sheet3 has proper headers
     try {
-      // Create a fresh authenticated client for sheets
       let authConfig;
-      
-      // Check if GOOGLE_KEYFILE is a JSON string (for Render) or file path (for local)
+
       if (GOOGLE_KEYFILE.startsWith('{')) {
-        // It's a JSON string (Render environment) - write to temp file
         const credentials = JSON.parse(GOOGLE_KEYFILE);
         const tempKeyFile = '/tmp/google-credentials-sales.json';
         fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
@@ -1228,26 +1242,23 @@ app.post('/api/sales-booking', async (req, res, next) => {
           subject: process.env.GSUITE_IMPERSONATE_USER
         };
       } else {
-        // It's a file path (local environment)
         authConfig = {
           keyFile: GOOGLE_KEYFILE,
           scopes: ['https://www.googleapis.com/auth/spreadsheets'],
           subject: process.env.GSUITE_IMPERSONATE_USER
         };
       }
-      
+
       const auth = new google.auth.JWT(authConfig);
       const sheets = google.sheets({ version: 'v4', auth });
-      
-      // Check if Sheet3 exists, if not create it
+
       const spreadsheet = await sheets.spreadsheets.get({
         spreadsheetId: SALES_BOOKINGS_SHEET_ID,
       });
-      
-      const sheetExists = spreadsheet.data.sheets.some(sheet => sheet.properties.title === SALES_SHEET_TAB_NAME);
-      
-      if (!sheetExists) {
-        // Create Sheet3
+
+      const sheetTitles = spreadsheet.data.sheets?.map(sheet => sheet.properties?.title) || [];
+
+      if (!sheetTitles.includes(SALES_SHEET_TAB_NAME)) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId: SALES_BOOKINGS_SHEET_ID,
           requestBody: {
@@ -1263,15 +1274,13 @@ app.post('/api/sales-booking', async (req, res, next) => {
         console.log('[SALES-BOOKING] Created Sheet3');
       }
 
-      // Check if headers exist
       const headerResponse = await sheets.spreadsheets.values.get({
         spreadsheetId: SALES_BOOKINGS_SHEET_ID,
         range: `${SALES_SHEET_TAB_NAME}!A1:Z1`,
       });
 
       const existingHeaders = headerResponse.data.values?.[0] || [];
-      
-      // Define the required headers
+
       const requiredHeaders = [
         'Timestamp',
         'Booking ID',
@@ -1302,11 +1311,13 @@ app.post('/api/sales-booking', async (req, res, next) => {
         'Notes'
       ];
 
-      // If headers don't match, update them
-      if (existingHeaders.length === 0 || !existingHeaders.every((header, index) => header === requiredHeaders[index])) {
+      const headersMatch = existingHeaders.length === requiredHeaders.length &&
+        requiredHeaders.every((header, index) => existingHeaders[index] === header);
+
+      if (!headersMatch) {
         await sheets.spreadsheets.values.update({
           spreadsheetId: SALES_BOOKINGS_SHEET_ID,
-          range: `${SALES_SHEET_TAB_NAME}!A1:AA1`, // Extended to AA for 27 columns
+          range: `${SALES_SHEET_TAB_NAME}!A1:AA1`,
           valueInputOption: 'RAW',
           requestBody: {
             values: [requiredHeaders]
@@ -1315,7 +1326,6 @@ app.post('/api/sales-booking', async (req, res, next) => {
         console.log('[SALES-BOOKING] Updated headers in Sheet3');
       }
 
-      // Format slot window for display
       const formatSlotWindow = (slotWindow) => {
         switch (slotWindow) {
           case '10_13': return '10 AM - 1 PM';
@@ -1328,49 +1338,45 @@ app.post('/api/sales-booking', async (req, res, next) => {
         }
       };
 
-      // Format location for display
       const formatLocation = (location) => {
         return location.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
       };
 
-      // Get CIS user details
       const cisUser = CIS_USERS.find(cis => cis.id === bookingData.cisId);
-      
-      // Prepare row data
+
       const rowData = [
-        dayjs().format('YYYY-MM-DD HH:mm:ss'), // Timestamp
-        bookingData.id || crypto.randomUUID(), // Booking ID
-        bookingData.portfolioManager || '', // Portfolio Manager
-        bookingData.ownerName || '', // Owner Name
-        bookingData.ownerPhone || '', // Owner Phone
-        bookingData.ownerEmail || '', // Owner Email
-        bookingData.rentokId || '', // RentOk ID
-        bookingData.noOfProperties || 0, // No. of Properties
-        bookingData.noOfBeds || 0, // No. of Beds
-        bookingData.subscriptionType || 'Base', // Subscription Type
-        bookingData.soldPricePerBed || 0, // Sold Price per Bed
-        bookingData.subscriptionStartDate || '', // Subscription Start Date
-        bookingData.monthsBilled || 0, // Months Billed
-        bookingData.freeMonths || 0, // Free Months
-        bookingData.totalAmount || 0, // Total Amount
-        formatLocation(bookingData.bookingLocation || ''), // Booking Location
-        bookingData.mode === 'physical' ? 'Physical' : 'Virtual', // Mode
-        cisUser?.name || '', // CIS Person
-        cisUser?.email || '', // CIS Email
-        bookingData.date || '', // Date
-        formatSlotWindow(bookingData.slotWindow || ''), // Time Slot
-        bookingData.status || 'Scheduled', // Status
-        bookingData.bookingRef || '', // Booking Reference
-        bookingData.calendarEventId || '', // Calendar Event ID
-        bookingData.createdBy || '', // Created By
-        'Sales Booking Form', // Source
-        bookingData.notes || '' // Notes
+        dayjs().format('YYYY-MM-DD HH:mm:ss'),
+        bookingData.id || crypto.randomUUID(),
+        bookingData.portfolioManager || '',
+        bookingData.ownerName || '',
+        bookingData.ownerPhone || '',
+        bookingData.ownerEmail || '',
+        bookingData.rentokId || '',
+        bookingData.noOfProperties || 0,
+        bookingData.noOfBeds || 0,
+        bookingData.subscriptionType || 'Base',
+        bookingData.soldPricePerBed || 0,
+        bookingData.subscriptionStartDate || '',
+        bookingData.monthsBilled || 0,
+        bookingData.freeMonths || 0,
+        bookingData.totalAmount || 0,
+        formatLocation(bookingData.bookingLocation || ''),
+        bookingData.mode === 'physical' ? 'Physical' : 'Virtual',
+        cisUser?.name || '',
+        cisUser?.email || '',
+        bookingData.date || '',
+        formatSlotWindow(bookingData.slotWindow || ''),
+        bookingData.status || 'Scheduled',
+        bookingData.bookingRef || '',
+        bookingData.calendarEventId || '',
+        bookingData.createdBy || '',
+        'Sales Booking Form',
+        bookingData.notes || ''
       ];
 
-      // Append the row to Sheet3
       await sheets.spreadsheets.values.append({
         spreadsheetId: SALES_BOOKINGS_SHEET_ID,
-        range: `${SALES_SHEET_TAB_NAME}!A:AA`, // Extended to AA for 27 columns
+        range: `${SALES_SHEET_TAB_NAME}!A:AA`,
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: {
@@ -1379,10 +1385,9 @@ app.post('/api/sales-booking', async (req, res, next) => {
       });
 
       console.log('[SALES-BOOKING] Successfully added booking to Sheet3');
-      
+
     } catch (sheetsError) {
       console.error('[SALES-BOOKING] Sheets error:', sheetsError);
-      // Don't fail the request if sheets update fails
     }
 
     res.json({ ok: true, message: 'Sales booking data updated successfully' });
@@ -1654,11 +1659,104 @@ app.post('/api/complete-onboarding', async (req, res, next) => {
       });
 
       console.log('[COMPLETE-ONBOARDING] Successfully added complete onboarding data to Sheet2');
-      
+
+      try {
+        const cleanSheetExists = spreadsheet.data.sheets?.some(sheet => sheet.properties?.title === CLEAN_ONBOARDING_SHEET_TAB_NAME);
+
+        if (!cleanSheetExists) {
+          console.log('[COMPLETE-ONBOARDING] Creating Clean Onboarding Sheet tab');
+          await sheetsClient.spreadsheets.batchUpdate({
+            spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+            requestBody: {
+              requests: [{
+                addSheet: {
+                  properties: {
+                    title: CLEAN_ONBOARDING_SHEET_TAB_NAME
+                  }
+                }
+              }]
+            }
+          });
+        }
+
+        const cleanHeaderResponse = await sheetsClient.spreadsheets.values.get({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          range: `${CLEAN_ONBOARDING_SHEET_TAB_NAME}!A1:O1`,
+        });
+
+        const existingCleanHeaders = cleanHeaderResponse.data.values?.[0] || [];
+        const cleanHeadersMatch = existingCleanHeaders.length === CLEAN_ONBOARDING_HEADERS.length &&
+          CLEAN_ONBOARDING_HEADERS.every((header, index) => existingCleanHeaders[index] === header);
+
+        if (!cleanHeadersMatch) {
+          await sheetsClient.spreadsheets.values.update({
+            spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+            range: `${CLEAN_ONBOARDING_SHEET_TAB_NAME}!A1:O1`,
+            valueInputOption: 'RAW',
+            requestBody: { values: [CLEAN_ONBOARDING_HEADERS] }
+          });
+          console.log('[COMPLETE-ONBOARDING] Updated headers in Clean Onboarding Sheet tab');
+        }
+
+        const normalizedAddons = Array.isArray(addons)
+          ? addons.map((addon, idx) => {
+              const unitPrice = Number(addon?.unitPrice) || 0;
+              const quantity = Number(addon?.quantity) && Number(addon.quantity) > 0 ? Number(addon.quantity) : 0;
+              const notes = addon?.notes || '';
+              return {
+                name: addon?.name || `Add-on ${idx + 1}`,
+                unitPrice,
+                quantity,
+                notes,
+                total: unitPrice * quantity
+              };
+            })
+          : [];
+
+        const addonsDetail = normalizedAddons.length
+          ? normalizedAddons
+              .map((addon, idx) => `#${idx + 1}: ${addon.name} | Price: ₹${addon.unitPrice} | Qty: ${addon.quantity} | Notes: ${addon.notes || 'NA'} | Total: ₹${addon.total}`)
+              .join(' ; ')
+          : '';
+
+        const addonsTotalAmount = normalizedAddons.reduce((sum, addon) => sum + addon.total, 0);
+
+        const cleanRowData = [
+          booking.id || booking.bookingRef || crypto.randomUUID(),
+          booking.portfolioManager || '',
+          booking.ownerName || booking.name || '',
+          booking.ownerPhone || booking.phone || '',
+          booking.ownerEmail || booking.email || '',
+          booking.rentOkId || booking.propertyId || '',
+          booking.noOfProperties || booking.propertiesCount || 0,
+          booking.noOfBeds || booking.bedsCount || 0,
+          booking.subscriptionType || 'Base',
+          booking.soldPricePerBed || 0,
+          booking.subscriptionStartDate || '',
+          booking.monthsBilled || 0,
+          booking.freeMonths || 0,
+          booking.totalAmount || 0,
+          normalizedAddons.length
+            ? `${addonsDetail}${addonsTotalAmount ? ` | Total Add-ons: ₹${addonsTotalAmount}` : ''}`
+            : ''
+        ];
+
+        await sheetsClient.spreadsheets.values.append({
+          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          range: `${CLEAN_ONBOARDING_SHEET_TAB_NAME}!A:O`,
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: { values: [cleanRowData] }
+        });
+
+        console.log('[COMPLETE-ONBOARDING] Added booking to Clean Onboarding Sheet tab');
+      } catch (cleanSheetError) {
+        console.error('[COMPLETE-ONBOARDING] Clean sheet update error:', cleanSheetError);
+      }
+
     } catch (sheetsError) {
       console.error('[COMPLETE-ONBOARDING] Sheets error:', sheetsError);
       console.error('[COMPLETE-ONBOARDING] Sheets error details:', sheetsError.message, sheetsError.stack);
-      // Return error to frontend so user knows it failed
       return res.status(500).json({ 
         ok: false, 
         error: 'Failed to save to Sheet2: ' + sheetsError.message,
@@ -2007,7 +2105,7 @@ app.get('/api/freebusy', async (req, res, next) => {
       // All others (Harsh, Jyoti, Megha, Aditya, etc.): 2-hour slots
       candidateSlots = [
         { start: mk(10), end: mk(12), label: '10 AM – 12 PM (2h)' },
-        { start: mk(13), end: mk(14), label: '1 PM – 2 PM (1h)' },
+        { start: mk(12), end: mk(14), label: '12 PM – 2 PM (2h)' },
         { start: mk(15), end: mk(17), label: '3 PM – 5 PM (2h)' },
         { start: mk(18), end: mk(19), label: '6 PM – 7 PM (1h)' },
       ];
