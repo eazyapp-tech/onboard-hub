@@ -219,7 +219,8 @@ const CIS_USERS = [
   { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash@eazyapp.tech' },
   { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti@eazyapp.tech' },
   { id: 'megha-verma', name: 'Megha Verma', email: 'megha@eazyapp.tech' },
-  { id: 'aditya-shrivastav', name: 'Aditya Shrivastav', email: 'aditya@eazyapp.tech' }
+  { id: 'aditya-shrivastav', name: 'Aditya Shrivastav', email: 'aditya@eazyapp.tech' },
+  { id: 'chandan-mishra', name: 'Chandan Mishra', email: 'chandan.m@eazyapp.tech' }
 ];
 
 let sheetsClient, calendarClient;

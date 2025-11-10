@@ -28,6 +28,8 @@ const SALES_USERS = [
   { id: 'sanjeev-jadhav', name: 'Sanjeev Jadhav', email: 'sanjeev@eazyapp.tech' },
   { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
   { id: 'pankaj-arora', name: 'Pankaj Arora', email: 'pankaj@eazyapp.tech' },
+  { id: 'megha-verma', name: 'MEGHA Verma', email: 'meghav@eazyapp.tech' },
+  { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti.k@eazyapp.tech' },
 ];
 
 function UserPicker({
