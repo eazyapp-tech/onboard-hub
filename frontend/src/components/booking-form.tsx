@@ -54,6 +54,7 @@ export function BookingForm({
     notes: string;
   }>>([]);
   const [confirmed, setConfirmed] = useState(false);
+  const [note, setNote] = useState('');
   const [cisOptions, setCisOptions] = useState<
     { label: string; email: string }[]
   >([]);
@@ -169,7 +170,7 @@ export function BookingForm({
       // Meta information
       source: 'Onboarding Booking Form',
       preferences: subscriptionSummary,
-      notes: addonsSummary,
+      notes: [addonsSummary, note].filter(Boolean).join(' | ') || undefined,
 
       // Onboarding status tracking
       statusHistory: [
@@ -408,6 +409,7 @@ export function BookingForm({
       ],
       cisEmail: selectedCisEmail,
       addons: selectedAddons,
+      note,
     };
   };
   
@@ -456,6 +458,7 @@ export function BookingForm({
     updatedAt: new Date().toISOString(),
     totalAmount,
     addons: selectedAddons,
+    note,
   };
   
     // 1) your existing local state writes (kept exactly as-is)
@@ -1058,7 +1061,6 @@ try {
               </div>
             </div>
           </motion.section>
-
           {/* Confirmation */}
           <motion.section initial={{
           opacity: 0,
@@ -1069,6 +1071,15 @@ try {
         }} transition={{
           delay: 0.8
         }} className="space-y-4" data-unique-id="a53e56b8-d6b1-4192-9f28-a3ed9da9fee7" data-file-name="components/booking-form.tsx">
+            <div className="glass p-4 rounded-lg">
+              <label className="block text-sm font-medium mb-2">Additional Notes</label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Add any extra context for the onboarding team"
+                className="w-full min-h-[120px] resize-y rounded-lg glass border border-glass-border p-3 focus:border-transparent focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <label className="flex items-start gap-3 p-4 glass rounded-lg cursor-pointer" data-unique-id="5a3b0f41-ed83-49a7-ad74-4a1eca70a4da" data-file-name="components/booking-form.tsx">
               <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} className="w-5 h-5 text-blue-600 mt-1" data-unique-id="36ceb57a-87eb-4ca7-a923-6791d34a6a61" data-file-name="components/booking-form.tsx" />
               <span className="text-sm" data-unique-id="58d758d1-9ef0-4dc7-95a6-d34e91d513e7" data-file-name="components/booking-form.tsx"><span className="editable-text" data-unique-id="fdebdd31-bb35-4810-97a1-cbeec1b4e22c" data-file-name="components/booking-form.tsx">

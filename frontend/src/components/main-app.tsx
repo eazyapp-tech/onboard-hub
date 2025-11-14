@@ -10,6 +10,8 @@ import { BookingForm } from '@/components/booking-form';
 import { CisDashboard } from '@/components/cis-dashboard';
 import { TodayBookingsModal } from '@/components/today-bookings-modal';
 import { useUser } from '@clerk/nextjs';
+import { ReferralForm } from './referral-form';
+import { SellAddonForm } from './sell-addon';
 
 const SALES_USERS = [
   { id: 'abhishek-wadia', name: 'Abhishek Wadia', email: 'abhishek.wadia@eazyapp.tech' },
@@ -83,6 +85,8 @@ export function MainApp() {
   const [appState, setAppState] = useState<AppState>('role-selection');
   const [showTodayBookings, setShowTodayBookings] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [cisTab, setCisTab] = useState<'dashboard' | 'referral'>('dashboard');
+  const [salesTab, setSalesTab] = useState<'booking' | 'addons'>('booking');
   const {
     currentUser,
     setCurrentUser,
@@ -152,19 +156,23 @@ export function MainApp() {
 
   const handleSalesPicked = (u: { id: string; name: string; email: string }) => {
     setCurrentUser({ ...u, role: 'sales', active: true });
+    setSalesTab('booking');
     setAppState('sales-booking');
   };
 
-  const handleCisPicked = (u: { id: string; name: string; email: string }) => {
-    setCurrentUser({ ...u, role: 'cis', active: true });
+  const handleCisPicked = (user: { id: string; name: string; email: string }) => {
+    setCurrentUser({ ...user, role: 'cis', active: true });
+    setCisTab('dashboard');
     setAppState('cis-dashboard');
   };
 
   const handleBackFromSales = () => {
+    setSalesTab('booking');
     setAppState('sales-user-select');
   };
 
   const handleBackFromCis = () => {
+    setCisTab('dashboard');
     setAppState('cis-user-select');
   };
 
@@ -221,8 +229,53 @@ export function MainApp() {
 
       {appState === 'sales-booking' && (
         <div>
-          <Header title="Create Booking" showBackButton onBack={handleBackFromSales} showTodayBookings onTodayBookings={() => setShowTodayBookings(true)} />
-          <BookingForm onSuccess={handleBookingSuccess} />
+          <Header
+            title={salesTab === 'booking' ? 'Create Booking' : 'Sell Add-on'}
+            showBackButton
+            onBack={handleBackFromSales}
+            showTodayBookings={salesTab === 'booking'}
+            onTodayBookings={
+              salesTab === 'booking' ? () => setShowTodayBookings(true) : undefined
+            }
+          />
+
+          <div className="max-w-6xl mx-auto px-4 pt-6">
+            <div className="flex border-b border-glass-border rounded-t-xl overflow-hidden">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSalesTab('booking')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  salesTab === 'booking'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Create Booking
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSalesTab('addons')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  salesTab === 'addons'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Sell Add-on
+              </motion.button>
+            </div>
+          </div>
+
+          <div className="max-w-6xl mx-auto px-4 pb-8">
+            {salesTab === 'booking' ? (
+              <BookingForm onSuccess={handleBookingSuccess} />
+            ) : (
+              <SellAddonForm />
+            )}
+          </div>
         </div>
       )}
 
@@ -243,8 +296,49 @@ export function MainApp() {
 
       {appState === 'cis-dashboard' && (
         <div>
-          <Header title="Onboarding Dashboard" showBackButton onBack={handleBackFromCis} />
-          <CisDashboard />
+          <Header
+            title={cisTab === 'dashboard' ? 'Onboarding Dashboard' : 'Referral Form'}
+            showBackButton
+            onBack={handleBackFromCis}
+          />
+
+          <div className="max-w-6xl mx-auto px-4 pt-6">
+            <div className="flex border-b border-glass-border rounded-t-xl overflow-hidden">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCisTab('dashboard')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  cisTab === 'dashboard'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Onboarding Dashboard
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCisTab('referral')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  cisTab === 'referral'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Referral Form
+              </motion.button>
+            </div>
+          </div>
+
+          <div className="max-w-6xl mx-auto px-4 pb-8">
+            {cisTab === 'dashboard' ? (
+              <CisDashboard />
+            ) : (
+              <ReferralForm context="cis" teamMemberName={currentUser?.name} />
+            )}
+          </div>
         </div>
       )}
 
