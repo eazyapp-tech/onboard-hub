@@ -206,6 +206,7 @@ const BookingSchema = new mongoose.Schema(
     location: String,
     calendarEventId: String,
     sheetSynced: { type: Boolean, default: false },
+    status: { type: String, default: 'scheduled', enum: ['scheduled', 'cancelled', 'completed'] }, // Add status field
   },
   { timestamps: true }
 );
@@ -574,20 +575,32 @@ async function createCalendarEvent(payload) {
     // Create calendar client with dynamic auth
     const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
   
-    const calendarId = process.env.CALENDAR_ID || 'primary';
+    // Always use 'primary' calendar for the impersonated CIS user
+    // This ensures events are created on the correct user's calendar, not a hardcoded calendar
+    const calendarId = 'primary';
     
     console.log('[CALENDAR] Creating event for CIS:', cisEmail, 'calendar:', calendarId);
+    console.log('[CALENDAR] Impersonating user:', cisEmail, 'Calendar ID will be:', calendarId);
+    console.log('[CALENDAR] Auth subject (impersonated user):', authConfig.subject);
   
+    // Build attendees list, excluding the CIS user (organizer) to avoid duplicate entries
+    const allAttendees = [
+      ...(payload.attendees || []).map(a => ({ email: a.email, displayName: a.displayName })),
+      ...(payload.email ? [{ email: payload.email, displayName: payload.fullName }] : []),
+    ];
+    
+    // Filter out the CIS user from attendees since they're the organizer
+    const filteredAttendees = allAttendees.filter(attendee => 
+      attendee.email.toLowerCase() !== cisEmail.toLowerCase()
+    );
+    
     const event = {
       summary: payload.summary || `Visit/Call with ${payload.fullName}`,
       description: payload.description || '',
       start: { dateTime: payload.startTime, timeZone: TIMEZONE },
       end: { dateTime: payload.endTime, timeZone: TIMEZONE },
       location: payload.location || '',
-      attendees: [
-        ...(payload.attendees || []).map(a => ({ email: a.email, displayName: a.displayName })),
-        ...(payload.email ? [{ email: payload.email, displayName: payload.fullName }] : []),
-      ],
+      attendees: filteredAttendees.length > 0 ? filteredAttendees : undefined,
     };
   
     console.log('[CALENDAR] Event details:', event);
@@ -1030,6 +1043,20 @@ app.get('/api/onboarding', async (_req, res, next) => {
   try {
     const rows = await Onboarding.find().sort({ createdAt: -1 }).limit(100);
     res.json({ ok: true, data: rows });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/onboarding/:id - Get a single onboarding record
+app.get('/api/onboarding/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const onboarding = await Onboarding.findById(id);
+    if (!onboarding) {
+      return res.status(404).json({ ok: false, error: 'Onboarding not found' });
+    }
+    res.json({ ok: true, data: onboarding });
   } catch (e) {
     next(e);
   }
@@ -2368,10 +2395,11 @@ app.get('/api/freebusy', async (req, res, next) => {
         $gte: timeMin,
         $lte: timeMax
       },
-      'attendees.email': email // Filter by CIS email in attendees
+      'attendees.email': email, // Filter by CIS email in attendees
+      status: { $ne: 'cancelled' } // Exclude cancelled bookings
     });
     
-    console.log('[FREEBUSY] Found', dbBookings.length, 'bookings in Booking collection for this date and CIS:', email);
+    console.log('[FREEBUSY] Found', dbBookings.length, 'non-cancelled bookings in Booking collection for this date and CIS:', email);
     
     // Add non-cancelled database bookings to busy list
     dbBookings.forEach(booking => {
@@ -2382,7 +2410,8 @@ app.get('/api/freebusy', async (req, res, next) => {
       console.log('[FREEBUSY] Adding DB booking:', {
         start: booking.startTime,
         end: booking.endTime,
-        attendees: booking.attendees
+        attendees: booking.attendees,
+        status: booking.status
       });
     });
     
@@ -2391,14 +2420,23 @@ app.get('/api/freebusy', async (req, res, next) => {
     const [year, month, day] = dateStr.split('-').map(Number);
     const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
-    // Query onboardings, excluding cancelled ones
-    const onboardings = cisId ? await Onboarding.find({
+    // Query onboardings, excluding cancelled ones (check for both 'cancelled' and 'Cancelled')
+    const allOnboardings = cisId ? await Onboarding.find({
       date: dateString,
-      cisId: cisId, // Use the cisId from query params
-      status: { $ne: 'cancelled' } // Exclude cancelled onboardings
+      cisId: cisId
     }) : [];
     
-    console.log('[FREEBUSY] Found', onboardings.length, 'non-cancelled onboardings in database for this date and CIS:', cisId);
+    const onboardings = allOnboardings.filter(o => {
+      const status = (o.status || '').toLowerCase();
+      return status !== 'cancelled';
+    });
+    
+    console.log('[FREEBUSY] Found', allOnboardings.length, 'total onboardings for this date and CIS:', cisId);
+    console.log('[FREEBUSY] Found', onboardings.length, 'non-cancelled onboardings after filtering');
+    console.log('[FREEBUSY] Cancelled onboardings:', allOnboardings.filter(o => {
+      const status = (o.status || '').toLowerCase();
+      return status === 'cancelled';
+    }).map(o => ({ _id: o._id, status: o.status, calendarEventId: o.calendarEventId })));
     
     // Add onboarding slots to busy list
     onboardings.forEach(onboarding => {
@@ -2628,22 +2666,231 @@ app.post('/api/cancel-onboarding', async (req, res, next) => {
     }
 
     // Also save cancellation data to MongoDB
+    // Try to find Onboarding by _id first, then by propertyId and name
+    let onboardingRecord = null;
+    let calendarEventDeleted = false;
+    let calendarEventId = null;
+    
     try {
-      await Onboarding.findByIdAndUpdate(booking.id, {
-        status: 'cancelled',
-        cancellationReason,
-        cancellationRemarks: cancellationRemarks || '',
-        cancelledAt,
-        cancelledBy: cancelledBy || 'Unknown'
-      }, { new: true });
-      console.log('[CANCEL-ONBOARDING] Updated MongoDB with cancellation data for:', booking.id);
+      
+      // First try direct ID match (most reliable)
+      if (booking.id) {
+        try {
+          onboardingRecord = await Onboarding.findById(booking.id);
+          if (onboardingRecord) {
+            console.log('[CANCEL-ONBOARDING] Found Onboarding record by ID:', booking.id);
+          }
+        } catch (idError) {
+          console.warn('[CANCEL-ONBOARDING] Invalid ID format:', booking.id, idError.message);
+        }
+      }
+      
+      // If not found by ID, try propertyId + name
+      if (!onboardingRecord) {
+        const propertyId = booking.rentOkId || booking.propertyId;
+        const ownerName = booking.ownerName;
+        if (propertyId && ownerName) {
+          onboardingRecord = await Onboarding.findOne({ 
+            propertyId: propertyId,
+            name: ownerName
+          }).sort({ createdAt: -1 }); // Get the most recent one
+          if (onboardingRecord) {
+            console.log('[CANCEL-ONBOARDING] Found Onboarding record by propertyId + name:', propertyId, ownerName);
+          }
+        }
+      }
+      
+      if (onboardingRecord) {
+        console.log('[CANCEL-ONBOARDING] Found Onboarding record, updating to cancelled:', onboardingRecord._id);
+        onboardingRecord.status = 'cancelled'; // Use lowercase consistently
+        onboardingRecord.cancellationReason = cancellationReason;
+        onboardingRecord.cancellationRemarks = cancellationRemarks || '';
+        onboardingRecord.cancelledAt = cancelledAt;
+        onboardingRecord.cancelledBy = cancelledBy || 'Unknown';
+        
+        // Add to status history
+        if (!onboardingRecord.statusHistory) {
+          onboardingRecord.statusHistory = [];
+        }
+        onboardingRecord.statusHistory.push({
+          status: 'Cancelled',
+          at: new Date(cancelledAt),
+          note: `Cancelled: ${cancellationReason}${cancellationRemarks ? ` - ${cancellationRemarks}` : ''}`
+        });
+        
+        await onboardingRecord.save();
+        console.log('[CANCEL-ONBOARDING] Updated MongoDB Onboarding record with cancellation data:', {
+          _id: onboardingRecord._id,
+          status: onboardingRecord.status,
+          calendarEventId: onboardingRecord.calendarEventId,
+          cancelledAt: onboardingRecord.cancelledAt
+        });
+        
+        // Delete calendar event if it exists
+        calendarEventId = onboardingRecord.calendarEventId;
+        
+        if (calendarEventId) {
+          try {
+            const cisUser = CIS_USERS.find(cis => cis.id === booking.cisId);
+            const cisEmail = cisUser?.email;
+            
+            if (cisEmail) {
+              console.log('[CANCEL-ONBOARDING] Deleting calendar event:', calendarEventId, 'for CIS:', cisEmail);
+              
+              // Create dynamic auth for this specific CIS user
+              let authConfig;
+              
+              if (GOOGLE_KEYFILE.startsWith('{')) {
+                const credentials = JSON.parse(GOOGLE_KEYFILE);
+                const tempKeyFile = '/tmp/google-credentials-cancel-cal.json';
+                fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+                authConfig = {
+                  keyFile: tempKeyFile,
+                  scopes: ['https://www.googleapis.com/auth/calendar'],
+                  subject: cisEmail,
+                };
+              } else {
+                authConfig = {
+                  keyFile: GOOGLE_KEYFILE,
+                  scopes: ['https://www.googleapis.com/auth/calendar'],
+                  subject: cisEmail,
+                };
+              }
+              
+              const auth = new google.auth.JWT(authConfig);
+              await auth.authorize();
+              
+              const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
+              const calendarId = 'primary';
+              
+              // Delete the calendar event
+              await dynamicCalendarClient.events.delete({
+                calendarId,
+                eventId: calendarEventId,
+                sendUpdates: 'all',
+              });
+              
+              calendarEventDeleted = true;
+              console.log('[CANCEL-ONBOARDING] ✅ Calendar event deleted successfully:', calendarEventId);
+              
+              // Mark the corresponding Booking record as cancelled
+              const cancelledBooking = await Booking.findOneAndUpdate(
+                { calendarEventId: calendarEventId },
+                { status: 'cancelled' },
+                { new: true }
+              );
+              if (cancelledBooking) {
+                console.log('[CANCEL-ONBOARDING] ✅ Booking record marked as cancelled:', cancelledBooking._id);
+              } else {
+                console.warn('[CANCEL-ONBOARDING] No Booking record found with calendarEventId:', calendarEventId);
+              }
+            } else {
+              console.warn('[CANCEL-ONBOARDING] Could not find CIS email for:', booking.cisId);
+            }
+          } catch (calendarError) {
+            console.error('[CANCEL-ONBOARDING] ❌ Failed to delete calendar event:', calendarError.message);
+            console.error('[CANCEL-ONBOARDING] Calendar error details:', calendarError);
+            // Don't fail the whole request if calendar deletion fails, but log it
+          }
+        } else {
+          console.warn('[CANCEL-ONBOARDING] No calendarEventId found in Onboarding record. Record:', {
+            _id: onboardingRecord._id,
+            calendarEventId: onboardingRecord.calendarEventId,
+            status: onboardingRecord.status
+          });
+        }
+        
+        // Store for response (already set above)
+      } else {
+        console.warn('[CANCEL-ONBOARDING] Could not find Onboarding record to update. Searched with:', {
+          id: booking.id,
+          propertyId: booking.rentOkId || booking.propertyId,
+          name: booking.ownerName
+        });
+        
+        // Fallback: Try to find and cancel the Booking record directly if we have calendarEventId
+        // This can happen if the Onboarding record wasn't created or has a different ID
+        try {
+          const bookingRecord = await Booking.findOne({
+            $or: [
+              { _id: booking.id },
+              { propertyId: booking.rentOkId || booking.propertyId }
+            ]
+          });
+          
+          if (bookingRecord && bookingRecord.calendarEventId) {
+            console.log('[CANCEL-ONBOARDING] Found Booking record with calendarEventId, attempting to delete calendar event');
+            const cisUser = CIS_USERS.find(cis => cis.id === booking.cisId);
+            const cisEmail = cisUser?.email;
+            
+            if (cisEmail) {
+              // Create dynamic auth for this specific CIS user
+              let authConfig;
+              
+              if (GOOGLE_KEYFILE.startsWith('{')) {
+                const credentials = JSON.parse(GOOGLE_KEYFILE);
+                const tempKeyFile = '/tmp/google-credentials-cancel-cal-fallback.json';
+                fs.writeFileSync(tempKeyFile, JSON.stringify(credentials));
+                authConfig = {
+                  keyFile: tempKeyFile,
+                  scopes: ['https://www.googleapis.com/auth/calendar'],
+                  subject: cisEmail,
+                };
+              } else {
+                authConfig = {
+                  keyFile: GOOGLE_KEYFILE,
+                  scopes: ['https://www.googleapis.com/auth/calendar'],
+                  subject: cisEmail,
+                };
+              }
+              
+              const auth = new google.auth.JWT(authConfig);
+              await auth.authorize();
+              
+              const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
+              const calendarId = 'primary';
+              
+              // Delete the calendar event
+              await dynamicCalendarClient.events.delete({
+                calendarId,
+                eventId: bookingRecord.calendarEventId,
+                sendUpdates: 'all',
+              });
+              
+              console.log('[CANCEL-ONBOARDING] Calendar event deleted via fallback:', bookingRecord.calendarEventId);
+              
+              // Mark Booking as cancelled
+              bookingRecord.status = 'cancelled';
+              await bookingRecord.save();
+              console.log('[CANCEL-ONBOARDING] Booking record marked as cancelled via fallback');
+            }
+          }
+        } catch (fallbackError) {
+          console.error('[CANCEL-ONBOARDING] Fallback calendar deletion failed:', fallbackError.message);
+        }
+      }
     } catch (mongoError) {
       console.error('[CANCEL-ONBOARDING] MongoDB update error:', mongoError);
       console.error('[CANCEL-ONBOARDING] MongoDB error details:', mongoError.message, mongoError.stack);
       // Log but don't fail if only MongoDB fails
     }
 
-    res.json({ ok: true, message: 'Cancellation data saved successfully to Sheet2 and MongoDB' });
+    // Return detailed response about what was cancelled
+    const responseData = {
+      ok: true,
+      message: 'Cancellation data saved successfully',
+      cancelled: {
+        onboardingFound: !!onboardingRecord,
+        onboardingId: onboardingRecord?._id?.toString(),
+        calendarEventDeleted: calendarEventDeleted,
+        calendarEventId: calendarEventId,
+        status: onboardingRecord?.status || 'unknown'
+      }
+    };
+    
+    console.log('[CANCEL-ONBOARDING] Final cancellation result:', responseData.cancelled);
+    
+    res.json(responseData);
   } catch (e) {
     console.error('POST /api/cancel-onboarding error:', e);
     next(e);
@@ -2684,7 +2931,9 @@ app.delete('/api/calendar-event/:eventId', async (req, res, next) => {
     await auth.authorize();
     
     const dynamicCalendarClient = google.calendar({ version: 'v3', auth });
-    const calendarId = process.env.CALENDAR_ID || 'primary';
+    // Always use 'primary' calendar for the impersonated CIS user
+    // This ensures we delete from the correct user's calendar where the event was created
+    const calendarId = 'primary';
 
     // Delete the calendar event
     await dynamicCalendarClient.events.delete({
@@ -2695,19 +2944,42 @@ app.delete('/api/calendar-event/:eventId', async (req, res, next) => {
 
     console.log('[CALENDAR] Event deleted successfully:', eventId);
     
-    // Also delete the corresponding Booking record from MongoDB
+    // Mark the corresponding Booking record as cancelled instead of deleting it
     try {
-      const deletedBooking = await Booking.findOneAndDelete({ calendarEventId: eventId });
-      if (deletedBooking) {
-        console.log('[CALENDAR] Booking record deleted from MongoDB:', deletedBooking._id);
+      const cancelledBooking = await Booking.findOneAndUpdate(
+        { calendarEventId: eventId },
+        { status: 'cancelled' },
+        { new: true }
+      );
+      if (cancelledBooking) {
+        console.log('[CALENDAR] Booking record marked as cancelled in MongoDB:', cancelledBooking._id);
       } else {
         console.log('[CALENDAR] No booking record found with calendarEventId:', eventId);
       }
     } catch (dbError) {
-      console.error('[CALENDAR] Failed to delete booking from MongoDB:', dbError.message);
+      console.error('[CALENDAR] Failed to update booking status in MongoDB:', dbError.message);
     }
     
-    res.json({ ok: true, message: 'Calendar event and booking record deleted successfully' });
+    // Also mark the corresponding Onboarding record as cancelled if it exists
+    try {
+      const cancelledOnboarding = await Onboarding.findOneAndUpdate(
+        { calendarEventId: eventId },
+        { 
+          status: 'cancelled',
+          cancelledAt: new Date().toISOString()
+        },
+        { new: true }
+      );
+      if (cancelledOnboarding) {
+        console.log('[CALENDAR] Onboarding record marked as cancelled in MongoDB:', cancelledOnboarding._id);
+      } else {
+        console.log('[CALENDAR] No onboarding record found with calendarEventId:', eventId);
+      }
+    } catch (dbError) {
+      console.error('[CALENDAR] Failed to update onboarding status in MongoDB:', dbError.message);
+    }
+    
+    res.json({ ok: true, message: 'Calendar event deleted and booking record marked as cancelled successfully' });
   } catch (e) {
     console.error('DELETE /api/calendar-event error:', e);
     next(e);

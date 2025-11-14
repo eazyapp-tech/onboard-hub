@@ -234,7 +234,10 @@ export const useAppStore = create<AppState>()(
                 cancellationReason: item.cancellationReason,
                 cancellationRemarks: item.cancellationRemarks,
                 cancelledAt: item.cancelledAt,
-                cancelledBy: item.cancelledBy
+                cancelledBy: item.cancelledBy,
+                // Calendar event ID from Onboarding record
+                calendarEventId: item.calendarEventId,
+                onboardingId: item._id
               }));
               set({ bookings: transformedBookings });
               console.log('Loaded onboardings from backend:', transformedBookings.length);

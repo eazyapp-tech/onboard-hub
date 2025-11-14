@@ -593,7 +593,7 @@ export function CisDashboard() {
 
   const closePanel = () => {
     setSelectedOnboarding(null);
-    setShowDetailPanel(true);
+    setShowDetailPanel(false);
     setShowCompleteModal(false);
     setShowReopenModal(false);
     setShowCancelModal(false);
@@ -662,6 +662,7 @@ export function CisDashboard() {
       
       const cancellationPayload = {
         booking: {
+          id: selected.onboardingId || selected.id, // Send onboardingId or id for MongoDB lookup
           bookingRef: selected.bookingRef,
           portfolioManager: selected.portfolioManager,
           ownerName: selected.ownerName,
@@ -697,54 +698,44 @@ export function CisDashboard() {
       
       const data = await response.json();
       
+      console.log('[CANCEL] Backend response:', data);
+      
       if (!response.ok || !data?.ok) {
         console.error('Cancel onboarding sheet sync failed:', data);
         toast.error('Onboarding cancelled locally, but failed to save to Sheet2.');
       } else {
-        toast.success('Onboarding cancelled and saved to Sheet2 ✅');
+        if (data.cancelled) {
+          console.log('[CANCEL] Cancellation details:', {
+            onboardingFound: data.cancelled.onboardingFound,
+            calendarEventDeleted: data.cancelled.calendarEventDeleted,
+            calendarEventId: data.cancelled.calendarEventId,
+            status: data.cancelled.status
+          });
+          
+          if (!data.cancelled.calendarEventDeleted && data.cancelled.calendarEventId) {
+            toast.warning('Onboarding cancelled, but calendar event deletion may have failed. Check logs.');
+          } else if (data.cancelled.calendarEventDeleted) {
+            toast.success('Onboarding cancelled and calendar event deleted ✅');
+          } else {
+            toast.success('Onboarding cancelled and saved to Sheet2 ✅');
+          }
+        } else {
+          toast.success('Onboarding cancelled and saved to Sheet2 ✅');
+        }
       }
     } catch (error) {
       console.error('Cancel onboarding sheet sync error:', error);
       toast.error('Onboarding cancelled locally, but Sheet2 sync failed.');
     }
     
-    // Delete calendar event if it exists
-    if (selected.calendarEventId) {
-      try {
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-        const response = await fetch(`${API_BASE_URL}/api/calendar-event/${selected.calendarEventId}`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cisEmail: CIS_USERS.find(cis => cis.id === selected.cisId)?.email }),
-        });
-        if (response.ok) {
-          console.log('Calendar event deleted successfully');
-        } else {
-          console.error('Failed to delete calendar event:', await response.text());
-        }
-      } catch (error) {
-        console.error('Failed to delete calendar event:', error);
-      }
-    }
+    // Calendar event deletion and Booking/Onboarding status updates are now handled by the backend cancel-onboarding endpoint
+    // No need to call them separately here
     
-    // Also delete/update the Booking record in MongoDB if it exists
-    if (selected.onboardingId) {
-      try {
-        const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
-        await fetch(`${API_BASE_URL}/api/onboarding/${selected.onboardingId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'cancelled' }),
-        });
-        console.log('Onboarding record updated to cancelled in MongoDB');
-      } catch (error) {
-        console.error('Failed to update onboarding record:', error);
-      }
-    }
-    
-    // Close modals
+    // Close modals and reset state
     setShowCancelModal(false);
     setShowDetailPanel(false);
+    setShowCompleteModal(false);
+    setShowReopenModal(false);
     setSelectedOnboarding(null);
     
     // Refresh bookings data so other users see the freed slot
@@ -1206,7 +1197,13 @@ export function CisDashboard() {
                       <motion.button 
                         whileHover={{ scale: 1.05 }} 
                         whileTap={{ scale: 0.95 }} 
-                        onClick={() => setSelectedOnboarding(booking.id)} 
+                        onClick={() => {
+                          setSelectedOnboarding(booking.id);
+                          setShowDetailPanel(true);
+                          setShowCompleteModal(false);
+                          setShowReopenModal(false);
+                          setShowCancelModal(false);
+                        }} 
                         className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-1 sm:py-2 gradient-primary text-white rounded-lg hover:shadow-lg transition-shadow text-xs sm:text-sm"
                       >
                         <Play className="w-3 h-3 sm:w-4 sm:h-4" />

@@ -480,6 +480,12 @@ export function BookingForm({
     // 2) NEW: also sync to backend (Express → Calendar + Sheets + Mongo)
     try {
       const payload = buildBackendPayload();
+      console.log('[BOOKING-FORM] Sending booking payload to backend:', {
+        cisEmail: payload.cisEmail,
+        cisId: formData.cisId,
+        selectedCisEmail: selectedCisEmail,
+        attendees: payload.attendees
+      });
       const res = await fetch(`${API_BASE_URL}/api/bookings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -920,7 +926,13 @@ try {
                       name="cis"
                       value={cis.id}
                       checked={formData.cisId === cis.id}
-                      onChange={(e) => setFormData({ ...formData, cisId: e.target.value as any })}
+                      onChange={(e) => {
+                        const selectedCis = CIS_USERS.find(c => c.id === e.target.value);
+                        if (selectedCis) {
+                          setSelectedCisEmail(selectedCis.email);
+                        }
+                        setFormData({ ...formData, cisId: e.target.value as any });
+                      }}
                       className="w-4 h-4 text-blue-600"
                     />
                     <span>{cis.name} ({cis.email})</span>
@@ -933,7 +945,7 @@ try {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4" data-unique-id="0d187fde-6c22-49e7-999a-6d267159efa9" data-file-name="components/booking-form.tsx">
               <div data-unique-id="8e4e22af-8b5f-43f7-b4cc-e9a077db969f" data-file-name="components/booking-form.tsx">
                 <label className="block text-sm font-medium mb-2" data-unique-id="e4fa0d56-f262-4be0-b995-050d8c04419f" data-file-name="components/booking-form.tsx"><span className="editable-text" data-unique-id="2d285b88-13aa-4c7a-8a67-79bb2be4918c" data-file-name="components/booking-form.tsx">Date *</span></label>
-                <input type="date" required min={format(addDays(new Date(), 1), 'yyyy-MM-dd')} value={formData.date} onChange={e => {
+                <input type="date" required min={format(new Date(), 'yyyy-MM-dd')} value={formData.date} onChange={e => {
                   setFormData({
                     ...formData,
                     date: e.target.value,
