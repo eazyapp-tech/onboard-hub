@@ -40,7 +40,22 @@ const config = {
     return config;
   },
   async rewrites() {
-    const backend = process.env.BACKEND_URL || 'https://onboard-hun-backend-1.onrender.com';
+    // Determine backend URL based on environment
+    let backend;
+    if (process.env.BACKEND_URL) {
+      // Use explicit BACKEND_URL if set (from Vercel env vars)
+      backend = process.env.BACKEND_URL;
+    } else if (process.env.VERCEL_ENV === 'preview') {
+      // Preview environment uses staging backend
+      backend = 'https://onboard-hub-backend-staging.onrender.com';
+    } else if (process.env.NODE_ENV === 'production') {
+      // Production uses production backend
+      backend = 'https://onboard-hub.onrender.com';
+    } else {
+      // Local development
+      backend = 'http://localhost:4000';
+    }
+    
     return [
       // keep your source maps passthrough
       { source: '/_next/:path*.map', destination: '/_next/:path*.map' },
