@@ -89,10 +89,18 @@ export const useAppStore = create<AppState>()(
       loadUserAccess: async (email) => {
         try {
           console.log('[STORE] Loading user access for:', email);
+          
+          // Add timeout to prevent hanging
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
           const response = await fetch(`${API_BASE_URL}/api/user-access?email=${encodeURIComponent(email)}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
           });
+          
+          clearTimeout(timeoutId);
           
           if (!response.ok) {
             console.error('[STORE] Failed to load user access:', response.statusText);
@@ -110,7 +118,12 @@ export const useAppStore = create<AppState>()(
             set({ userAccess: null });
           }
         } catch (error) {
-          console.error('[STORE] Error loading user access:', error);
+          if (error.name === 'AbortError') {
+            console.error('[STORE] User access request timed out after 10 seconds');
+          } else {
+            console.error('[STORE] Error loading user access:', error);
+          }
+          // Set null to allow UI to proceed (will show all dashboards as fallback)
           set({ userAccess: null });
         }
       },

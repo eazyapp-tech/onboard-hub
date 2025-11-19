@@ -55,7 +55,15 @@ export function MainApp() {
     const userEmail = user.emailAddresses[0]?.emailAddress;
     if (userEmail && !userAccess && !loadingUserAccess) {
       setLoadingUserAccess(true);
+      
+      // Set a maximum timeout to prevent infinite loading
+      const maxTimeout = setTimeout(() => {
+        console.warn('[MAIN-APP] User access loading timed out, proceeding with fallback');
+        setLoadingUserAccess(false);
+      }, 15000); // 15 second maximum
+      
       loadUserAccess(userEmail).finally(() => {
+        clearTimeout(maxTimeout);
         setLoadingUserAccess(false);
       });
     }
