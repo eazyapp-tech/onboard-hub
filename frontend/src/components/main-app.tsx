@@ -10,87 +10,34 @@ import { BookingForm } from '@/components/booking-form';
 import { CisDashboard } from '@/components/cis-dashboard';
 import { TodayBookingsModal } from '@/components/today-bookings-modal';
 import { useUser } from '@clerk/nextjs';
-
-const SALES_USERS = [
-  { id: 'abhishek-wadia', name: 'Abhishek Wadia', email: 'abhishek.wadia@eazyapp.tech' },
-  { id: 'akash-kumar-sao', name: 'Akash Kumar Sao', email: 'akash.k@eazyapp.tech' },
-  { id: 'prashant', name: 'Prashant', email: 'prashant@eazyapp.tech' },
-  { id: 'somesh-g', name: 'Somesh G', email: 'somesh.g@eazyapp.tech' },
-  { id: 'aditis', name: 'Aditis', email: 'aditis@eazyapp.tech' },
-  { id: 'shraddha-shrivastav', name: 'Shraddha Shrivastav', email: 'Shradda.s@eazyapp.tech' },
-  { id: 'amit', name: 'Amit', email: 'amit@eazyapp.tech' },
-  { id: 'bharat-k', name: 'Bharat K', email: 'bharat.k@eazyapp.tech' },
-  { id: 'kamalkant-upadhyay', name: 'Kamalkant Upadhyay', email: 'kamalkant.u@eazyapp.tech' },
-  { id: 'ashish-p', name: 'Ashish P', email: 'ashish.p@eazyapp.tech' },
-  { id: 'ayush-gupta', name: 'Ayush Gupta', email: 'ayush@eazyapp.tech' },
-  { id: 'siddhant-goswami', name: 'Siddhant Goswami', email: 'siddhant.goswami@eazyapp.tech' },
-  { id: 'pankaj', name: 'Pankaj', email: 'pankaj@eazyapp.tech' },
-  { id: 'sanjeev-jadhav', name: 'Sanjeev Jadhav', email: 'sanjeev@eazyapp.tech' },
-  { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
-  { id: 'pankaj-arora', name: 'Pankaj Arora', email: 'pankaj@eazyapp.tech' },
-  { id: 'megha-verma', name: 'MEGHA Verma', email: 'meghav@eazyapp.tech' },
-  { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti.k@eazyapp.tech' },
-];
-
-function UserPicker({
-  title,
-  users,
-  onSelect,
-  onBack,
-}: {
-  title: string;
-  users: { id: string; name: string; email: string }[];
-  onSelect: (u: { id: string; name: string; email: string }) => void;
-  onBack: () => void;
-}) {
-  return (
-    <div className="max-w-4xl mx-auto p-4 sm:p-6">
-      <div className="glass rounded-2xl p-4 sm:p-6">
-        <div className="flex items-center justify-between mb-4 sm:mb-6">
-          <h2 className="text-xl sm:text-2xl font-bold">{title}</h2>
-          <button
-            onClick={onBack}
-            className="px-3 sm:px-4 py-2 rounded-lg bg-white/50 hover:bg-white/70 transition text-sm sm:text-base"
-          >
-            Back
-          </button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          {users.map((user) => (
-            <motion.button
-              key={user.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => onSelect(user)}
-              className="glass rounded-xl p-3 sm:p-4 text-left hover:bg-white/30 transition-all"
-            >
-              <div className="font-medium text-sm sm:text-base">{user.name}</div>
-              <div className="text-xs sm:text-sm text-muted-foreground">{user.email}</div>
-            </motion.button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+import { ReferralForm } from './referral-form';
+import { TrainingModule } from './training-module';
+import { SalesPreviousBookings } from './sales-previous-bookings';
+import { AddonDashboard } from './addon-dashboard';
+import { TeamMemberSelector } from './team-member-selector';
 
 type AppState = 
   | 'role-selection'
-  | 'sales-user-select'
-  | 'sales-booking'
-  | 'cis-user-select'
-  | 'cis-dashboard';
+  | 'sales-dashboard'
+  | 'cis-dashboard'
+  | 'addon-dashboard';
 
 export function MainApp() {
   const [appState, setAppState] = useState<AppState>('role-selection');
   const [showTodayBookings, setShowTodayBookings] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [cisTab, setCisTab] = useState<'dashboard' | 'referral'>('dashboard');
+  const [salesTab, setSalesTab] = useState<'booking' | 'history' | 'training'>('booking');
   const {
     currentUser,
     setCurrentUser,
     loadBookingsFromBackend,
     migrateLocalDataToBackend,
-    bookings
+    bookings,
+    loadUserAccess,
+    userAccess,
+    selectedTeamMember,
+    setSelectedTeamMember
   } = useAppStore();
   const { user } = useUser();
 
@@ -98,6 +45,21 @@ export function MainApp() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Load user access when user is authenticated
+  const [loadingUserAccess, setLoadingUserAccess] = useState(false);
+  
+  useEffect(() => {
+    if (!mounted || !user) return;
+    
+    const userEmail = user.emailAddresses[0]?.emailAddress;
+    if (userEmail && !userAccess && !loadingUserAccess) {
+      setLoadingUserAccess(true);
+      loadUserAccess(userEmail).finally(() => {
+        setLoadingUserAccess(false);
+      });
+    }
+  }, [mounted, user, userAccess, loadUserAccess, loadingUserAccess]);
 
   // Load data from backend on startup
   useEffect(() => {
@@ -136,38 +98,32 @@ export function MainApp() {
   }
 
   const handleRoleSelect = (role: string) => {
+    const baseUser = {
+      id: user?.id || 'anonymous',
+      name: user?.fullName || user?.emailAddresses[0]?.emailAddress || 'User',
+      email: user?.emailAddresses[0]?.emailAddress || 'user@eazyapp.tech',
+      active: true,
+    };
+
     if (role === 'sales') {
-      setAppState('sales-user-select');   // pick which sales person to book
+      setCurrentUser({ ...baseUser, role: 'sales' });
+      setSalesTab('booking');
+      setAppState('sales-dashboard');
     } else if (role === 'cis') {
-      setAppState('cis-user-select');   // pick which onboarding dashboard to open
+      setCurrentUser({ ...baseUser, role: 'cis' });
+      setCisTab('dashboard');
+      setAppState('cis-dashboard');
+    } else if (role === 'addon') {
+      setCurrentUser({ ...baseUser, role: 'sales' });
+      setAppState('addon-dashboard');
     }
   };
 
-  const handleBookingSuccess = () => {
-    // Could navigate to a success page or show confirmation
-  };
+  const handleBookingSuccess = () => {};
 
-  const handleBack = () => {
+  const handleBackToRoles = () => {
     setCurrentUser(null);
     setAppState('role-selection');
-  };
-
-  const handleSalesPicked = (u: { id: string; name: string; email: string }) => {
-    setCurrentUser({ ...u, role: 'sales', active: true });
-    setAppState('sales-booking');
-  };
-
-  const handleCisPicked = (u: { id: string; name: string; email: string }) => {
-    setCurrentUser({ ...u, role: 'cis', active: true });
-    setAppState('cis-dashboard');
-  };
-
-  const handleBackFromSales = () => {
-    setAppState('sales-user-select');
-  };
-
-  const handleBackFromCis = () => {
-    setAppState('cis-user-select');
   };
 
   return (
@@ -208,45 +164,162 @@ export function MainApp() {
 
       {appState === 'role-selection' && (
         <div>
-          <RoleSelector onRoleSelect={handleRoleSelect} />
+          {user && loadingUserAccess ? (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50">
+              <div className="text-center">
+                <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading your access permissions...</p>
+              </div>
+            </div>
+          ) : (
+            <RoleSelector onRoleSelect={handleRoleSelect} />
+          )}
         </div>
       )}
 
-      {appState === 'sales-user-select' && (
-        <UserPicker
-          title="Select Sales User"
-          users={SALES_USERS}
-          onSelect={handleSalesPicked}
-          onBack={() => setAppState('role-selection')}
-        />
-      )}
-
-      {appState === 'sales-booking' && (
+      {appState === 'sales-dashboard' && (
         <div>
-          <Header title="Create Booking" showBackButton onBack={handleBackFromSales} showTodayBookings onTodayBookings={() => setShowTodayBookings(true)} />
-          <BookingForm onSuccess={handleBookingSuccess} />
-        </div>
-      )}
+          <Header
+            title={
+              salesTab === 'booking'
+                ? 'Create Booking'
+                : salesTab === 'history'
+                ? 'Previous Bookings'
+                : 'Training Hub'
+            }
+            showBackButton
+            onBack={handleBackToRoles}
+            showTodayBookings={salesTab === 'booking'}
+            onTodayBookings={
+              salesTab === 'booking' ? () => setShowTodayBookings(true) : undefined
+            }
+          />
 
-      {appState === 'cis-user-select' && (
-        <UserPicker
-          title="Select Onboarding Person"
-          users={[
-            { id: 'manish-arora', name: 'Manish Arora', email: 'manish.arora@eazyapp.tech' },
-            { id: 'harsh-tulsyan', name: 'Harsh Tulsyan', email: 'harsh@eazyapp.tech' },
-            { id: 'vikash-jarwal', name: 'Vikash Jarwal', email: 'vikash.b@eazyapp.tech' },
-            { id: 'jyoti-kalra', name: 'Jyoti Kalra', email: 'jyoti.k@eazyapp.tech' },
-            { id: 'megha-verma', name: 'Megha Verma', email: 'meghav@eazyapp.tech' },
-          ]}
-          onSelect={handleCisPicked}
-          onBack={() => setAppState('role-selection')}
-        />
+          <div className="max-w-6xl mx-auto px-4 pt-6">
+            <div className="flex border-b border-glass-border rounded-t-xl overflow-hidden">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSalesTab('booking')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  salesTab === 'booking'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Create Booking
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSalesTab('history')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  salesTab === 'history'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Previous Bookings
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setSalesTab('training')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  salesTab === 'training'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Training
+              </motion.button>
+            </div>
+          </div>
+
+          <div className="max-w-6xl mx-auto px-4 pt-6 pb-8">
+            {/* Show team member selector only for viewing tabs, not for booking creation */}
+            {salesTab !== 'booking' && userAccess && (userAccess.isSuperAdmin || userAccess.scopes?.sales?.level === 'manager') && (
+              <TeamMemberSelector
+                userAccess={userAccess}
+                scope="sales"
+                onSelect={setSelectedTeamMember}
+                currentSelection={selectedTeamMember}
+              />
+            )}
+            
+            {salesTab === 'booking' && <BookingForm onSuccess={handleBookingSuccess} />}
+            {salesTab === 'history' && (
+              <SalesPreviousBookings currentUser={currentUser} />
+            )}
+            {salesTab === 'training' && <TrainingModule />}
+          </div>
+        </div>
       )}
 
       {appState === 'cis-dashboard' && (
         <div>
-          <Header title="Onboarding Dashboard" showBackButton onBack={handleBackFromCis} />
-          <CisDashboard />
+          <Header
+            title={cisTab === 'dashboard' ? 'Onboarding Dashboard' : 'Referral Form'}
+            showBackButton
+            onBack={handleBackToRoles}
+          />
+
+          <div className="max-w-6xl mx-auto px-4 pt-6">
+            <div className="flex border-b border-glass-border rounded-t-xl overflow-hidden">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCisTab('dashboard')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  cisTab === 'dashboard'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Onboarding Dashboard
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setCisTab('referral')}
+                className={`flex-1 px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
+                  cisTab === 'referral'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-white/70'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Referral Form
+              </motion.button>
+            </div>
+          </div>
+
+          <div className="max-w-6xl mx-auto px-4 pt-6 pb-8">
+            {/* Show team member selector only for dashboard tab, not for referral form */}
+            {cisTab === 'dashboard' && userAccess && (userAccess.isSuperAdmin || userAccess.scopes?.onboarding?.level === 'manager') && (
+              <TeamMemberSelector
+                userAccess={userAccess}
+                scope="onboarding"
+                onSelect={setSelectedTeamMember}
+                currentSelection={selectedTeamMember}
+              />
+            )}
+            
+            {cisTab === 'dashboard' ? (
+              <CisDashboard />
+            ) : (
+              <ReferralForm context="cis" teamMemberName={currentUser?.name} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {appState === 'addon-dashboard' && (
+        <div>
+          <Header title="Add-on Manager" showBackButton onBack={handleBackToRoles} />
+          <AddonDashboard />
         </div>
       )}
 

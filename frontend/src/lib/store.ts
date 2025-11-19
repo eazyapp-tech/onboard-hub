@@ -1,20 +1,41 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { User, Booking, BookingAddon, CisDayLock, OnboardingStatus } from '@/types';
+import { User, Booking, BookingAddon, CisDayLock, OnboardingStatus, Training } from '@/types';
 import { format } from 'date-fns';
+import { API_BASE_URL } from './config';
+
+interface UserAccess {
+  scopes: {
+    sales?: { level: string; canAccess: boolean; teamName?: string; managerEmail?: string };
+    onboarding?: { level: string; canAccess: boolean; teamName?: string; managerEmail?: string };
+    addon?: { level: string; canAccess: boolean; teamName?: string; managerEmail?: string };
+  };
+  teams: {
+    sales?: string[];
+    onboarding?: string[];
+  };
+  isSuperAdmin: boolean;
+  email?: string;
+}
 
 interface AppState {
   currentUser: User | null;
+  userAccess: UserAccess | null;
   bookings: Booking[];
   bookingAddons: BookingAddon[];
   cisDayLocks: CisDayLock[];
+  trainings: Training[];
   
   // which CIS user's dashboard we're looking at (or saving to)
   dashboardUserId: string | null;
   selectedOnboardingId: string | null;
+  selectedTeamMember: string | null; // For managers viewing team member dashboards
   
   // Actions
   setCurrentUser: (user: User | null) => void;
+  setUserAccess: (access: UserAccess | null) => void;
+  loadUserAccess: (email: string) => Promise<void>;
+  setSelectedTeamMember: (email: string | null) => void;
   addBooking: (booking: Booking) => void;
   updateBooking: (id: string, updates: Partial<Booking>) => void;
   addBookingAddon: (addon: BookingAddon) => void;
@@ -41,19 +62,58 @@ interface AppState {
   loadBookingsFromBackend: () => Promise<void>;
   refreshBookings: () => Promise<void>;
   migrateLocalDataToBackend: () => Promise<void>;
+  loadTrainingsFromBackend: () => Promise<void>;
+  addTraining: (training: Training) => void;
+  updateTrainingLocal: (id: string, updates: Partial<Training>) => void;
 }
 
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       currentUser: null,
+      userAccess: null,
       bookings: [],
       bookingAddons: [],
       cisDayLocks: [],
+      trainings: [],
       dashboardUserId: null,
       selectedOnboardingId: null,
+      selectedTeamMember: null,
 
       setCurrentUser: (user) => set({ currentUser: user }),
+      
+      setUserAccess: (access) => set({ userAccess: access }),
+      
+      setSelectedTeamMember: (email) => set({ selectedTeamMember: email }),
+      
+      loadUserAccess: async (email) => {
+        try {
+          console.log('[STORE] Loading user access for:', email);
+          const response = await fetch(`${API_BASE_URL}/api/user-access?email=${encodeURIComponent(email)}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          
+          if (!response.ok) {
+            console.error('[STORE] Failed to load user access:', response.statusText);
+            set({ userAccess: null });
+            return;
+          }
+          
+          const result = await response.json();
+          console.log('[STORE] User access response:', result);
+          if (result.ok && result.data) {
+            set({ userAccess: result.data });
+            console.log('[STORE] User access set:', result.data);
+          } else {
+            console.error('[STORE] Invalid user access response:', result);
+            set({ userAccess: null });
+          }
+        } catch (error) {
+          console.error('[STORE] Error loading user access:', error);
+          set({ userAccess: null });
+        }
+      },
 
       addBooking: (booking) => set((state) => ({
         bookings: [...state.bookings, booking]
@@ -67,6 +127,16 @@ export const useAppStore = create<AppState>()(
 
       addBookingAddon: (addon) => set((state) => ({
         bookingAddons: [...state.bookingAddons, addon]
+      })),
+
+      addTraining: (training) => set((state) => ({
+        trainings: [training, ...state.trainings]
+      })),
+
+      updateTrainingLocal: (id, updates) => set((state) => ({
+        trainings: state.trainings.map((training) =>
+          training._id === id ? { ...training, ...updates, updatedAt: new Date().toISOString() } : training
+        )
       })),
 
       addCisDayLock: (lock) => set((state) => ({
@@ -253,6 +323,23 @@ export const useAppStore = create<AppState>()(
       refreshBookings: async () => {
         const { loadBookingsFromBackend } = get();
         await loadBookingsFromBackend();
+      },
+
+      loadTrainingsFromBackend: async () => {
+        try {
+          const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+          const response = await fetch(`${API_BASE_URL}/api/trainings`);
+          if (!response.ok) {
+            console.warn('Failed to load trainings:', response.status);
+            return;
+          }
+          const data = await response.json();
+          if (data.ok && Array.isArray(data.data)) {
+            set({ trainings: data.data });
+          }
+        } catch (error) {
+          console.error('Error loading trainings from backend:', error);
+        }
       },
 
       migrateLocalDataToBackend: async () => {

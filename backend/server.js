@@ -42,6 +42,8 @@ const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:3002',
   'http://localhost:3003',
+  'http://localhost:3004',
+  'http://localhost:3005',
   'https://start.rentok.com',
   'https://frontend-frdf20knw-nimitjns-projects.vercel.app',
   'https://onboard-hun-backend-1.onrender.com'
@@ -102,7 +104,16 @@ app.get('/', (_req, res) => {
       'GET /api/onboarding/cis/:cisId',
       'PATCH /api/onboarding/:id/status',
       'POST /api/onboarding/:id/attachment',
-      'PATCH /api/onboarding/:id'
+      'PATCH /api/onboarding/:id',
+      'POST /api/sales-booking',
+      'POST /api/referrals',
+      'GET /api/referrals',
+      'POST /api/sell-addon',
+      'GET /api/trainings',
+      'POST /api/trainings',
+      'PATCH /api/trainings/:id',
+      'GET /api/user-access',
+      'GET /api/users-by-scope'
     ]
   });
 });
@@ -227,10 +238,59 @@ const Onboarding = mongoose.model('Onboarding', OnboardingSchema);
 const Booking = mongoose.model('Booking', BookingSchema);
 const File = mongoose.model('File', FileSchema);
 
+const TrainingSchema = new mongoose.Schema(
+  {
+    bookingId: { type: String, required: true },
+    bookingRef: String,
+    ownerName: String,
+    ownerPhone: String,
+    trainingType: { type: String, enum: ['staff', 'redemo'], default: 'staff' },
+    trainingDate: String,
+    trainingTime: String,
+    trainerId: String,
+    trainerName: String,
+    trainerEmail: String,
+    status: { type: String, enum: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled' },
+    notes: String,
+    createdBy: String,
+  },
+  { timestamps: true }
+);
+
+const Training = mongoose.model('Training', TrainingSchema);
+
+// Role Assignment Schema for hierarchical access control
+const RoleAssignmentSchema = new mongoose.Schema(
+  {
+    email: { type: String, required: true, unique: true, lowercase: true },
+    scopes: [{
+      scope: { type: String, enum: ['sales', 'onboarding', 'addon'], required: true },
+      role: { type: String, enum: ['super_admin', 'manager', 'team_member'], required: true },
+      teamName: String, // e.g., 'siddhant-team', 'ayush-team', 'onboarding-team'
+      managerEmail: String, // For team members, who is their manager
+    }],
+    teamMembers: [String], // Array of email addresses of team members (for managers)
+  },
+  { timestamps: true }
+);
+
+const RoleAssignment = mongoose.model('RoleAssignment', RoleAssignmentSchema);
+
 // 8) Google clients (Sheets + Calendar)
 const GOOGLE_KEYFILE =
   process.env.GOOGLE_APPLICATION_CREDENTIALS ||
   process.env.GOOGLE_SHEET_CREDENTIALS_PATH;
+// Unified Sheet ID - all operations use this single sheet
+const UNIVERSAL_SHEET_ID = process.env.UNIVERSAL_SHEET_ID || '1FfAG2BJc9aK8cmnxoc6O90ArNNJw9_FIlhgHVDY6SWA';
+
+// Tab names for the unified sheet
+const SALES_TAB_NAME = 'Sales';
+const ONBOARDING_TAB_NAME = 'Onboarding';
+const REFERRAL_TAB_NAME = 'Referral';
+const ADDON_TAB_NAME = 'Add-on';
+const TRAINING_TAB_NAME = 'Training';
+
+// Legacy sheet IDs (kept for backward compatibility if needed)
 const DEALS_SHEET_ID = process.env.DEALS_SHEET_ID;
 const BOOKINGS_SHEET_ID = process.env.BOOKINGS_SHEET_ID;
 const SALES_BOOKINGS_SHEET_ID = '1vu_cSTYh8imEPCWe1Pdcmz_Dgsb6uVCtAPmotoxPXUk'; // Sales bookings sheet
@@ -370,6 +430,100 @@ function formatSlotWindow(slotWindow) {
     case '18_19': return '6 PM - 7 PM';
     default: return slotWindow;
   }
+}
+
+// Role Service Functions
+async function getUserRoles(email) {
+  if (!email) return null;
+  const normalizedEmail = email.toLowerCase().trim();
+  
+  try {
+    const roleAssignment = await RoleAssignment.findOne({ email: normalizedEmail });
+    return roleAssignment;
+  } catch (error) {
+    console.error('[ROLE] Error fetching user roles:', error);
+    return null;
+  }
+}
+
+async function getUserAccess(email) {
+  if (!email) {
+    return {
+      scopes: [],
+      teams: {},
+      isSuperAdmin: false
+    };
+  }
+  
+  const normalizedEmail = email.toLowerCase().trim();
+  const roleAssignment = await getUserRoles(normalizedEmail);
+  
+  if (!roleAssignment) {
+    return {
+      scopes: [],
+      teams: {},
+      isSuperAdmin: false
+    };
+  }
+  
+  const scopes = {};
+  const teams = {};
+  let isSuperAdmin = false;
+  
+  // Process each scope assignment
+  for (const scopeAssignment of roleAssignment.scopes || []) {
+    const { scope, role, teamName, managerEmail } = scopeAssignment;
+    
+    if (role === 'super_admin') {
+      isSuperAdmin = true;
+      // Super admin has access to all scopes
+      scopes.sales = { level: 'super_admin', canAccess: true };
+      scopes.onboarding = { level: 'super_admin', canAccess: true };
+      scopes.addon = { level: 'super_admin', canAccess: true };
+    } else {
+      scopes[scope] = {
+        level: role,
+        canAccess: true,
+        teamName: teamName,
+        managerEmail: managerEmail
+      };
+      
+      // If manager, include team members
+      if (role === 'manager' && roleAssignment.teamMembers && roleAssignment.teamMembers.length > 0) {
+        teams[scope] = roleAssignment.teamMembers;
+      }
+    }
+  }
+  
+  // Add-on is always accessible
+  if (!scopes.addon) {
+    scopes.addon = { level: 'team_member', canAccess: true };
+  }
+  
+  return {
+    scopes,
+    teams,
+    isSuperAdmin,
+    email: normalizedEmail
+  };
+}
+
+async function getTeamMembersForManager(email, scope) {
+  const normalizedEmail = email.toLowerCase().trim();
+  const roleAssignment = await getUserRoles(normalizedEmail);
+  
+  if (!roleAssignment) return [];
+  
+  // Check if user is a manager for this scope
+  const scopeAssignment = roleAssignment.scopes?.find(
+    s => s.scope === scope && s.role === 'manager'
+  );
+  
+  if (scopeAssignment && roleAssignment.teamMembers) {
+    return roleAssignment.teamMembers;
+  }
+  
+  return [];
 }
 
 function generatePortfolioManagerEmail(bookingData) {
@@ -516,13 +670,30 @@ const bookingZ = z.object({
   cisEmail: z.string().email('cisEmail must be a valid email'), // CIS user to impersonate
 });
 
+const trainingZ = z.object({
+  bookingId: z.string().min(1, 'bookingId is required'),
+  bookingRef: z.string().optional(),
+  ownerName: z.string().optional(),
+  ownerPhone: z.string().optional(),
+  trainingType: z.enum(['staff', 'redemo']),
+  trainingDate: z.string().min(1, 'trainingDate is required'),
+  trainingTime: z.string().min(1, 'trainingTime is required'),
+  trainerId: z.string().min(1, 'trainerId is required'),
+  trainerName: z.string().min(1, 'trainerName is required'),
+  trainerEmail: z.string().email(),
+  status: z.enum(['scheduled', 'ongoing', 'completed', 'cancelled']).optional(),
+  notes: z.string().optional(),
+  createdBy: z.string().optional(),
+});
+
 // 10) Helpers
-async function appendToSheet({ spreadsheetId, values }) {
+async function appendToSheet({ spreadsheetId, tabName, values }) {
   if (!sheetsClient) throw new Error('Sheets client not ready');
   if (!spreadsheetId) throw new Error('Spreadsheet ID missing');
+  const range = tabName ? `${tabName}!A:Z` : `${SHEET_TAB_NAME}!A:Z`;
   return sheetsClient.spreadsheets.values.append({
     spreadsheetId,
-    range: `${SHEET_TAB_NAME}!A:Z`,
+    range,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [values] },
@@ -593,7 +764,7 @@ async function createCalendarEvent(payload) {
     const filteredAttendees = allAttendees.filter(attendee => 
       attendee.email.toLowerCase() !== cisEmail.toLowerCase()
     );
-    
+  
     const event = {
       summary: payload.summary || `Visit/Call with ${payload.fullName}`,
       description: payload.description || '',
@@ -655,6 +826,7 @@ app.post('/api/onboarding', async (req, res, next) => {
       doc.name || '', // Owner Name
       doc.phone || '', // Phone
       doc.email || '', // Email
+      parsed.brandName || '', // Brand Name
       doc.city || '', // City/Location
       doc.budget || 0, // Budget/Total Amount
       doc.propertyId || '', // Property ID/RentOk ID
@@ -687,9 +859,14 @@ app.post('/api/onboarding', async (req, res, next) => {
     ];
 
     try {
-      await appendToSheet({ spreadsheetId: DEALS_SHEET_ID, values });
+      await appendToSheet({ 
+        spreadsheetId: UNIVERSAL_SHEET_ID, 
+        tabName: ONBOARDING_TAB_NAME,
+        values 
+      });
       doc.sheetSynced = true;
       await doc.save();
+      console.log('[Sheets] Successfully appended to Onboarding tab');
     } catch (e) {
       console.error('[Sheets] Append failed:', e.message);
     }
@@ -1058,6 +1235,47 @@ app.get('/api/onboarding/:id', async (req, res, next) => {
     }
     res.json({ ok: true, data: onboarding });
   } catch (e) {
+    next(e);
+  }
+});
+
+// GET /api/user-access - Get user's access permissions and available dashboards
+app.get('/api/user-access', async (req, res, next) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      return res.status(400).json({ ok: false, error: 'Email parameter is required' });
+    }
+    
+    const access = await getUserAccess(email);
+    res.json({ ok: true, data: access });
+  } catch (e) {
+    console.error('[API] Error fetching user access:', e);
+    next(e);
+  }
+});
+
+// GET /api/users-by-scope - Get all users for a specific scope (for super admins)
+app.get('/api/users-by-scope', async (req, res, next) => {
+  try {
+    const { scope } = req.query;
+    if (!scope || !['sales', 'onboarding', 'addon'].includes(scope)) {
+      return res.status(400).json({ ok: false, error: 'Valid scope parameter is required (sales, onboarding, or addon)' });
+    }
+    
+    const users = await RoleAssignment.find({
+      'scopes.scope': scope
+    }).select('email scopes');
+    
+    const userList = users.map(u => ({
+      email: u.email,
+      role: u.scopes.find(s => s.scope === scope)?.role || 'team_member',
+      teamName: u.scopes.find(s => s.scope === scope)?.teamName
+    }));
+    
+    res.json({ ok: true, data: userList });
+  } catch (e) {
+    console.error('[API] Error fetching users by scope:', e);
     next(e);
   }
 });
@@ -1462,30 +1680,30 @@ app.post('/api/sales-booking', async (req, res, next) => {
       const sheets = google.sheets({ version: 'v4', auth });
 
       const spreadsheet = await sheets.spreadsheets.get({
-        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+        spreadsheetId: UNIVERSAL_SHEET_ID,
       });
 
       const sheetTitles = spreadsheet.data.sheets?.map(sheet => sheet.properties?.title) || [];
 
-      if (!sheetTitles.includes(SALES_SHEET_TAB_NAME)) {
+      if (!sheetTitles.includes(SALES_TAB_NAME)) {
         await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
+          spreadsheetId: UNIVERSAL_SHEET_ID,
           requestBody: {
             requests: [{
               addSheet: {
                 properties: {
-                  title: SALES_SHEET_TAB_NAME
+                  title: SALES_TAB_NAME
                 }
               }
             }]
           }
         });
-        console.log('[SALES-BOOKING] Created Sheet3');
+        console.log('[SALES-BOOKING] Created Sales tab');
       }
 
       const headerResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
-        range: `${SALES_SHEET_TAB_NAME}!A1:Z1`,
+        spreadsheetId: UNIVERSAL_SHEET_ID,
+        range: `${SALES_TAB_NAME}!A1:Z1`,
       });
 
       const existingHeaders = headerResponse.data.values?.[0] || [];
@@ -1525,14 +1743,14 @@ app.post('/api/sales-booking', async (req, res, next) => {
 
       if (!headersMatch) {
         await sheets.spreadsheets.values.update({
-          spreadsheetId: SALES_BOOKINGS_SHEET_ID,
-          range: `${SALES_SHEET_TAB_NAME}!A1:AA1`,
+          spreadsheetId: UNIVERSAL_SHEET_ID,
+          range: `${SALES_TAB_NAME}!A1:AA1`,
           valueInputOption: 'RAW',
           requestBody: {
             values: [requiredHeaders]
           }
         });
-        console.log('[SALES-BOOKING] Updated headers in Sheet3');
+        console.log('[SALES-BOOKING] Updated headers in Sales tab');
       }
 
       const formatSlotWindow = (slotWindow) => {
@@ -1584,8 +1802,8 @@ app.post('/api/sales-booking', async (req, res, next) => {
       ];
 
       await sheets.spreadsheets.values.append({
-        spreadsheetId: SALES_BOOKINGS_SHEET_ID,
-        range: `${SALES_SHEET_TAB_NAME}!A:AA`,
+        spreadsheetId: UNIVERSAL_SHEET_ID,
+        range: `${SALES_TAB_NAME}!A:AA`,
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: {
@@ -1593,7 +1811,7 @@ app.post('/api/sales-booking', async (req, res, next) => {
         }
       });
 
-      console.log('[SALES-BOOKING] Successfully added booking to Sheet3');
+      console.log('[SALES-BOOKING] Successfully added booking to Sales tab');
 
     } catch (sheetsError) {
       console.error('[SALES-BOOKING] Sheets error:', sheetsError);
@@ -1602,6 +1820,102 @@ app.post('/api/sales-booking', async (req, res, next) => {
     res.json({ ok: true, message: 'Sales booking data updated successfully' });
   } catch (e) {
     console.error('POST /api/sales-booking error:', e);
+    next(e);
+  }
+});
+
+// Training endpoints
+app.get('/api/trainings', async (req, res, next) => {
+  try {
+    const { createdBy } = req.query;
+    const query = {};
+    if (createdBy) {
+      query.createdBy = createdBy;
+    }
+    const trainings = await Training.find(query).sort({ createdAt: -1 });
+    res.json({ ok: true, data: trainings });
+  } catch (e) {
+    console.error('GET /api/trainings error:', e);
+    next(e);
+  }
+});
+
+app.post('/api/trainings', async (req, res, next) => {
+  try {
+    const parsed = trainingZ.parse(req.body);
+
+    let ownerName = parsed.ownerName;
+    let ownerPhone = parsed.ownerPhone;
+    let bookingRef = parsed.bookingRef;
+
+    if (!ownerName || !ownerPhone || !bookingRef) {
+      const onboarding = await Onboarding.findById(parsed.bookingId);
+      if (onboarding) {
+        ownerName = onboarding.name || ownerName;
+        ownerPhone = onboarding.phone || ownerPhone;
+        bookingRef = onboarding.propertyId || bookingRef;
+      }
+    }
+
+    const training = await Training.create({
+      bookingId: parsed.bookingId,
+      bookingRef,
+      ownerName,
+      ownerPhone,
+      trainingType: parsed.trainingType,
+      trainingDate: parsed.trainingDate,
+      trainingTime: parsed.trainingTime,
+      trainerId: parsed.trainerId,
+      trainerName: parsed.trainerName,
+      trainerEmail: parsed.trainerEmail,
+      status: parsed.status || 'scheduled',
+      notes: parsed.notes,
+      createdBy: parsed.createdBy || 'System',
+    });
+
+    res.status(201).json({ ok: true, data: training });
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return res.status(400).json({ ok: false, error: 'Invalid payload', details: e.flatten() });
+    }
+    console.error('POST /api/trainings error:', e);
+    next(e);
+  }
+});
+
+app.patch('/api/trainings/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+
+    const allowedFields = [
+      'trainingType',
+      'trainingDate',
+      'trainingTime',
+      'trainerId',
+      'trainerName',
+      'trainerEmail',
+      'status',
+      'notes',
+    ];
+
+    const sanitizedUpdates = {};
+    allowedFields.forEach((field) => {
+      if (typeof updates[field] !== 'undefined') {
+        sanitizedUpdates[field] = updates[field];
+      }
+    });
+
+    sanitizedUpdates.updatedAt = new Date();
+
+    const updated = await Training.findByIdAndUpdate(id, sanitizedUpdates, { new: true });
+    if (!updated) {
+      return res.status(404).json({ ok: false, error: 'Training not found' });
+    }
+
+    res.json({ ok: true, data: updated });
+  } catch (e) {
+    console.error('PATCH /api/trainings/:id error:', e);
     next(e);
   }
 });

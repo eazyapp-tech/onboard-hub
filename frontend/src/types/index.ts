@@ -2,7 +2,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'sales' | 'cis' | 'admin';
+  role: 'sales' | 'cis' | 'addon' | 'training' | 'admin';
   active: boolean;
 }
 
@@ -52,6 +52,25 @@ export interface BookingAddon {
   price: number;
   source: 'pre-sold' | 'at-onboarding';
   notes?: string;
+}
+
+export interface Training {
+  _id: string;
+  bookingId: string;
+  bookingRef?: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  trainingType: 'staff' | 'redemo';
+  trainingDate: string;
+  trainingTime: string;
+  trainerId: string;
+  trainerName: string;
+  trainerEmail: string;
+  status: 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CisDayLock {

@@ -65,6 +65,7 @@ export function BookingForm({
   const [slotOptions, setSlotOptions] = useState<{ value: string; label: string }[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [selfOnboarding, setSelfOnboarding] = useState(false);
   
   // Build candidate slots based on CIS user.
   // - Manish and Vikas: 3h blocks [10-13], [14-17], plus 1h [18-19]
@@ -159,12 +160,18 @@ export function BookingForm({
       freeMonths: formData.freeMonths || 0,
       bookingLocation: locLabel,
       mode: formData.mode || 'physical',
-      cisId: formData.cisId || '',
-      slotWindow: formatSlotWindow(formData.slotWindow),
+      cisId: selfOnboarding ? '' : (formData.cisId || ''),
+      slotWindow: selfOnboarding ? '' : formatSlotWindow(formData.slotWindow),
       date: formData.date || '',
       status: 'scheduled',
       bookingRef: generateBookingRef(),
       createdBy: currentUser?.name || 'Unknown',
+
+      // Self-onboarding fields
+      selfOnboarding: selfOnboarding || false,
+      selfOnboardingUserId: selfOnboarding ? (currentUser?.id || '') : '',
+      selfOnboardingUserName: selfOnboarding ? (currentUser?.name || '') : '',
+      selfOnboardingUserEmail: selfOnboarding ? (currentUser?.email || '') : '',
 
       // Meta information
       source: 'Onboarding Booking Form',
@@ -173,7 +180,7 @@ export function BookingForm({
 
       // Onboarding status tracking
       statusHistory: [
-        { status: 'Onboarding Started', at: new Date().toISOString(), note: 'Created from Sales form' }
+        { status: 'Onboarding Started', at: new Date().toISOString(), note: selfOnboarding ? 'Created as self-onboarding' : 'Created from Sales form' }
       ],
     };
   };
@@ -419,13 +426,16 @@ export function BookingForm({
       toast.error('Please confirm the owner has received the required templates');
       return;
     }
-    if (!formData.slotWindow) {
-      toast.error('Please pick a free time slot');
-      return;
-    }
-    if (!formData.cisId) {
-      toast.error('Please select the onboarding person');
-      return;
+    // Skip slot and CIS validation if self-onboarding is enabled
+    if (!selfOnboarding) {
+      if (!formData.slotWindow) {
+        toast.error('Please pick a free time slot');
+        return;
+      }
+      if (!formData.cisId) {
+        toast.error('Please select the onboarding person');
+        return;
+      }
     }
     if (formData.bookingLocation === 'others' && !formData.customCity.trim()) {
       toast.error('Please enter a custom city name');
@@ -909,7 +919,34 @@ try {
               Scheduling
             </span></h3>
             
-            {/* Onboarding Person (CIS) selection */}
+            {/* Self-Onboarding Toggle */}
+            <div className="glass p-4 rounded-lg border-2 border-blue-200">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selfOnboarding}
+                  onChange={(e) => {
+                    setSelfOnboarding(e.target.checked);
+                    if (e.target.checked) {
+                      // Clear CIS and slot selection when enabling self-onboarding
+                      setFormData({ ...formData, cisId: '', slotWindow: '' });
+                      setSelectedCisEmail('');
+                      setSelectedSlotId('');
+                    }
+                  }}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="font-medium text-base">I will handle this onboarding myself</span>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    No slot selection needed. This will be recorded in the onboarding dashboard with you as the onboarding person.
+                  </p>
+                </div>
+              </label>
+            </div>
+            
+            {/* Onboarding Person (CIS) selection - Hidden when self-onboarding is enabled */}
+            {!selfOnboarding && (
             <div className="glass p-4 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">Select Onboarding Person</p>
 
@@ -941,7 +978,10 @@ try {
                 })}
               </div>
             </div>
+            )}
 
+            {/* Date and Slot Selection - Hidden when self-onboarding is enabled */}
+            {!selfOnboarding ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4" data-unique-id="0d187fde-6c22-49e7-999a-6d267159efa9" data-file-name="components/booking-form.tsx">
               <div data-unique-id="8e4e22af-8b5f-43f7-b4cc-e9a077db969f" data-file-name="components/booking-form.tsx">
                 <label className="block text-sm font-medium mb-2" data-unique-id="e4fa0d56-f262-4be0-b995-050d8c04419f" data-file-name="components/booking-form.tsx"><span className="editable-text" data-unique-id="2d285b88-13aa-4c7a-8a67-79bb2be4918c" data-file-name="components/booking-form.tsx">Date *</span></label>
@@ -958,7 +998,7 @@ try {
 
                 <div className="space-y-2">
                   <select
-                    required
+                    required={!selfOnboarding}
                     value={formData.slotWindow}
                     onChange={e => setFormData({ ...formData, slotWindow: e.target.value })}
                     className="w-full p-3 rounded-lg glass border border-glass-border focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1038,6 +1078,15 @@ try {
                 )}
               </div>
             </div>
+            ) : (
+              // Self-onboarding message
+              <div className="glass p-4 rounded-lg bg-blue-50 border border-blue-200">
+                <p className="text-sm text-blue-800">
+                  <strong>Self-Onboarding Mode:</strong> You will handle this onboarding yourself. 
+                  The completed time and date will be recorded when you mark the onboarding as complete in the dashboard.
+                </p>
+              </div>
+            )}
           </motion.section>
 
           {/* Subscription Summary */}
